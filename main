@@ -5,7 +5,8 @@ from telegram.ext import (
     CallbackQueryHandler,
     ConversationHandler, Application,
 )
-
+import asyncio
+from pymongo import MongoClient
 import logging
 from typing import Dict
 from telegram import ReplyKeyboardMarkup, ReplyKeyboardRemove, Update
@@ -18,12 +19,15 @@ from telegram.ext import (
     filters,
 )
 
+MONGODB_LINK = "mongodb+srv://urfubot:Maksiz03@cluster0.hfhv7m8.mongodb.net/"
+MONGO_DB="urfubot"
+mdb = MongoClient(MONGODB_LINK)[MONGO_DB]
 # Ведение журнала логов
-logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO
-)
+# logging.basicConfig(
+#     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO
+# )
 
-logger = logging.getLogger(__name__)
+# logger = logging.getLogger(__name__)
 
 CHOOSING, TYPING_REPLY, TYPING_CHOICE = range(3)
 # Этапы/состояния разговора
@@ -37,7 +41,9 @@ START_OVER, END, \
     S_E_1, S_E_2, S_E_3, \
     R_Q_1, R_Q_2, R_Q_3_1, R_Q_3_2, R_Q_4_1, \
     R_Q_4_2, R_Q_5_1, R_Q_5_2, R_Q_6_1, R_Q_6_2, \
-    R_E_1, R_E_2, R_E_3 = range(42)
+    R_E_1, R_E_2, R_E_3,= range(42)
+
+global user_data1
 
 reply_keyboard = [
     ["Ваше ФИ", "Номер телефона"],
@@ -54,12 +60,10 @@ def facts_to_str(user_data: Dict[str, str]) -> str:
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Начvало разговора, просьба ввести данные."""
+    user = search_or_save_user(mdb, update.effective_user)
+    print(user)
     await update.message.reply_text(
-        "Вас приветствует медицинский бот - АйБолит! После\n"
-        "прохождения опроса я выдам вам не только рекомендации,\n"
-        "которые могут помочь вашему малышу, но и соберу все\n"
-        "симптомы в один файл, чтобы вы могли отправить его\n"
-        "своему врачу.\n",
+        "Вас приветствует медицинский бот - АйБолит! После прохождения опроса я выдам вам не только рекомендации, которые могут помочь вашему малышу, но и соберу все симптомы в один файл, чтобы вы могли отправить его своему врачу.",
         reply_markup=markup,
     )
     return CHOOSING
@@ -86,10 +90,17 @@ async def received_information(update: Update, context: ContextTypes.DEFAULT_TYP
     user_data[category] = text
     del user_data["choice"]
 
+
     await update.message.reply_text(
         f"{facts_to_str(user_data)}",
         reply_markup=markup,
     )
+    if len(user_data) >=4:
+        user = search_or_save_user(mdb, update.effective_user)
+        anketa = save_user_anketa(mdb, user, user_data)
+        print(user)
+    else:
+        pass
     return CHOOSING
 
 async def done(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -105,11 +116,20 @@ async def done(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user_data.clear()
     return ConversationHandler.END
 
+async def dbR_Q_1(update,_):
+    await asyncio.sleep(0)
+    user = search_or_save_user(mdb, update.effective_user)
+    savebd = save_user_bd(mdb, user,'Какие жалобы беспокоят Вашего ребенка?','Срыгивания')
+    print(savebd)
+
+
+
 async def firstQue(update, _):
+
     """Вызывается по команде `/start`."""
     # Получаем пользователя, который запустил команду `/start`
     user = update.message.from_user
-    logger.info("Пользователь %s начал разговор", user.first_name)
+    # logger.info("Пользователь %s начал разговор", user.first_name)
     # Создаем `InlineKeyboard`, где каждая кнопка имеет
     # отображаемый текст и строку `callback_data`
     # Клавиатура - это список строк кнопок, где каждая строка,
@@ -131,19 +151,21 @@ async def firstQue(update, _):
         text="Какие жалобы беспокоят Вашего ребенка?", reply_markup=reply_markup
     )
     # Сообщаем `ConversationHandler`, что сейчас состояние `FIRST`
+
     return FIRST
 
 
 async def colic_q_1(update, _):
     """Показ нового выбора кнопок"""
+    answer_callback = CallbackData('answer')
     query = update.callback_query
     await query.answer()
     keyboard = [
         [
-            InlineKeyboardButton("Менее 3-х раз в неделю", callback_data=str(C_Q_2))
+            InlineKeyboardButton("Менее 3-х раз в неделю", callback_data=(str(C_Q_2),answer))
         ],
         [
-            InlineKeyboardButton("Более 4-х раз в неделю", callback_data=str(C_Q_2))
+            InlineKeyboardButton("Более 4-х раз в неделю", callback_data=str((C_Q_2),answer))
         ]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -155,6 +177,7 @@ async def colic_q_1(update, _):
 
 async def colic_q_2(update, _):
     """Показ нового выбора кнопок"""
+    print(answer)
     query = update.callback_query
     await query.answer()
     keyboard = [
@@ -787,6 +810,7 @@ async def stool_end_3(update, _):
 async def reg_q_1(update, _):
     """Показ нового выбора кнопок"""
     query = update.callback_query
+    print(query)
     await query.answer()
     keyboard = [
         [
@@ -1087,6 +1111,7 @@ async def reg_end_3(update, _):
 
 
 async def start_over(update, _):
+
     query = update.callback_query
     await query.answer()
     keyboard = [
@@ -1105,6 +1130,100 @@ async def start_over(update, _):
         text="Какие жалобы беспокоят Вашего ребенка?", reply_markup=reply_markup
     )
     return FIRST
+async def end_REG_1(update, _):
+    """Возвращает `ConversationHandler.END`, который говорит
+    `ConversationHandler` что разговор окончен"""
+    query = update.callback_query
+    await query.answer()
+    await query.edit_message_text(text="Рекомендована постуральная терапия: \nКормление ребенка под углом 45-60 градусов;\n"
+             "Удерживать ребенка после кормления в вертикальном положении в течение 20-30 минут;\n"
+             "Следить за тем, чтобы младенец заглатывал сосок вместе с ареолой для предотвращения заглатывания воздуха;\n"
+             "При кормлении из бутылки необходимо полностью заполнять соску;\n"
+             "Следить за тем, чтобы одежда не сдавливала живот ребенка.",)
+    return ConversationHandler.END
+async def end_REG_2(update, _):
+    """Возвращает `ConversationHandler.END`, который говорит
+    `ConversationHandler` что разговор окончен"""
+    query = update.callback_query
+    await query.answer()
+    await query.edit_message_text(text="Рекомендовано обратиться к врачу-педиатру\n"
+             "Рекомендована постуральная терапия: \nКормление ребенка под углом 45-60 градусов;\n"
+             "Удерживать ребенка после кормления в вертикальном положении в течение 20-30 минут;\n"
+             "Следить за тем, чтобы младенец заглатывал сосок вместе с ареолой для предотвращения заглатывания воздуха;\n"
+             "При кормлении из бутылки необходимо полностью заполнять соску;\n"
+             "Следить за тем, чтобы одежда не сдавливала живот ребенка.")
+    return ConversationHandler.END
+async def end_REG_3(update, _):
+    """Возвращает `ConversationHandler.END`, который говорит
+    `ConversationHandler` что разговор окончен"""
+    query = update.callback_query
+    await query.answer()
+    await query.edit_message_text(text="Срочно обратиться к врачу педиатру.\n"
+             "Рекомендована постуральная терапия: \nКормление ребенка под углом 45-60 градусов;\n"
+             "Удерживать ребенка после кормления в вертикальном положении в течение 20-30 минут;\n"
+             "Следить за тем, чтобы младенец заглатывал сосок вместе с ареолой для предотвращения заглатывания воздуха;\n"
+             "При кормлении из бутылки необходимо полностью заполнять соску;\n"
+             "Следить за тем, чтобы одежда не сдавливала живот ребенка.",)
+    return ConversationHandler.END
+
+async def end_STOOL_1(update, _):
+    """Возвращает `ConversationHandler.END`, который говорит
+    `ConversationHandler` что разговор окончен"""
+    query = update.callback_query
+    await query.answer()
+    await query.edit_message_text(text="Срочно обратиться к врачу-педиатру")
+    return ConversationHandler.END
+async def end_STOOL_2(update, _):
+    """Возвращает `ConversationHandler.END`, который говорит
+    `ConversationHandler` что разговор окончен"""
+    query = update.callback_query
+    await query.answer()
+    await query.edit_message_text(text="Обратиться к врачу-педиатру для нормализации режима питания;\n"
+             "Рекомендовано коррекция пищевого рациона кормящей мамы:\n"
+             "увеличить в рационе продукты с высоким содержанием пищевых "
+             "волокон (овощи, фрукты), достаточный питьевой режим, кисломолочные продукты;\n"
+             "Введение прикорма с 4-х месяцев – овощное пюре.")
+    return ConversationHandler.END
+async def end_STOOL_3(update, _):
+    """Возвращает `ConversationHandler.END`, который говорит
+    `ConversationHandler` что разговор окончен"""
+    query = update.callback_query
+    await query.answer()
+    await query.edit_message_text(text="Рекомендовано обратиться к врачу-педиатру для коррекции "
+             "пищевого режима питания, питьевого режима питания и выбора оптимальной смеси;\n"
+             "Введение прикорма с 4-х месяцев – овощное пюре.")
+    return ConversationHandler.END
+
+async def end_COLIC_1(update, _):
+    """Возвращает `ConversationHandler.END`, который говорит
+    `ConversationHandler` что разговор окончен"""
+    query = update.callback_query
+    await query.answer()
+    await query.edit_message_text(text="Срочно обратиться к врачу-педиатру.")
+    return ConversationHandler.END
+async def end_COLIC_2(update, _):
+    """Возвращает `ConversationHandler.END`, который говорит
+    `ConversationHandler` что разговор окончен"""
+    query = update.callback_query
+    await query.answer()
+    await query.edit_message_text(text="Обратиться к врачу-педиатру\n"
+             "Рекомендуется кормящей маме исключить из питания продукты, повышающие газообразование в кишечнике:\n"
+             "сахар, кондитерские изделия, виноград, мясные бульоны, консервы, колбасы, цельное молоко заменить "
+             "на кисломолочные продукты;\n"
+             "Рекомендуется ребенку:\n"
+             "сухое тепло на живот (теплая пеленка или грелка), "
+             "поглаживание живота по часовой стрелке и выкладывание на живот перед кормлением.")
+    return ConversationHandler.END
+async def end_COLIC_3(update, _):
+    """Возвращает `ConversationHandler.END`, который говорит
+    `ConversationHandler` что разговор окончен"""
+    query = update.callback_query
+    await query.answer()
+    await query.edit_message_text(text="Обратиться к врачу-педиатру для коррекции режима питания смеси;\n"
+             "Рекомендуется ребенку:\n"
+             "сухое тепло на живот (теплая пеленка или грелка), поглаживание живота по часовой "
+             "стрелке и выкладывание на живот перед кормлением.",)
+    return ConversationHandler.END
 
 
 async def end(update, _):
@@ -1114,6 +1233,57 @@ async def end(update, _):
     await query.answer()
     await query.edit_message_text(text="Спасибо за прохождение нашего опроса!")
     return ConversationHandler.END
+
+
+def search_or_save_user(mdb , effective_user):
+    user = mdb.users.find_one({"user_id": effective_user.id})
+    if not user:
+        user ={
+            "user_id":effective_user.id,
+            "username":effective_user.username,
+        }
+        mdb.users.insert_one(user)
+    return user
+
+def save_user_anketa(mdb,user,user_data):
+    mdb.users.update_one(
+        {'_id':user['_id']},
+        {'$set':{'anketa':{ 'ФИ' : user_data['Ваше ФИ'],
+                            'Номер телефона' : user_data['Номер телефона'],
+                            'ФИ ребенка': user_data['ФИ ребенка'],
+                            'Возраст ребенка в месяцах': user_data['Возраст ребенка в месяцах']}}},
+        {'$set':{'Срыгивания':{'В течение какого времени срыгивания беспокоят Вашего ребенка?' : None,
+                               'Какой объем одного срыгивания?': None,
+                               'Какой характер содержимого срыгивания?': None,
+                               'Есть ли у Вашего ребенка одна или несколько из перечисленных жалоб: снижение массы тела, рвота фонтаном, рвота с примесью крови или желчи?': None,
+                               'Через какое время после кормления происходит срыгивание?': None,
+                               'Как часто происходит срыгивание?': None,
+        }}},
+    {'$set': {'Колики': {'Как часто Вашего ребенка беспокоят колики?': None,
+                             'В течение какого времени Вашего ребенка беспокоят колики?': None,
+                             'В какое время суток беспокоят колики?': None,
+                             'Есть ли связь возникновения колик с приемом пищи?': None,
+                             'Проходят ли колики после стула?': None,
+                             'Продолжительность одного эпизода колик?': None,
+                             'Есть ли у Вашего ребенка одна или несколько из перечисленных жалоб: Упорный крик с изменением тональности, повторные рвоты, рвота с кровью, кровь в стуле, потеря массы тела, задержка роста, лихорадка (повышение температуры)? ': None
+                             }}},
+    {'$set': {'Изменение стул: задержка (запоры) или учащенный стул ':
+                            {'За прошедший месяц в среднем сколько дефекаций в неделю было у Вашего ребенка?': None,
+                             'Есть ли у Вашего ребенка одна или несколько из перечисленных жалоб: сухость кожи и слизистых, редкое мочеиспускание, язык обложен белым налетом, слабость и сонливость, западение родничка?': None,
+                             'На каком вскармливании Ваш ребенок?': None,
+                             'В течение последнего месяца Ваш ребенок сильно тужился во время дефекации? ': None,
+                             'Какой консистенции был стул у Ваш ребенок за прошедший месяц? ': None
+                             }}}
+    )
+    return user
+
+def save_user_bd(mdb,user,x,y,z):
+    mdb.users.update_one(
+        {'_id':user['_id']},
+        {'$set': {x: {y: z}
+       }}
+    )
+    return user
 
 
 if __name__ == '__main__':
@@ -1157,6 +1327,7 @@ if __name__ == '__main__':
                 CallbackQueryHandler(stool_end_1, pattern='^' + str(S_E_1) + '$'),
                 CallbackQueryHandler(stool_end_2, pattern='^' + str(S_E_2) + '$'),
                 CallbackQueryHandler(stool_end_3, pattern='^' + str(S_E_3) + '$'),
+                #CallbackQueryHandler(dbR_Q_1, pattern='^' + str(R_Q_1) + '$'),
                 CallbackQueryHandler(reg_q_1, pattern='^' + str(R_Q_1) + '$'),
                 CallbackQueryHandler(reg_q_2, pattern='^' + str(R_Q_2) + '$'),
                 CallbackQueryHandler(reg_q_3_1, pattern='^' + str(R_Q_3_1) + '$'),
@@ -1172,7 +1343,6 @@ if __name__ == '__main__':
                 CallbackQueryHandler(reg_end_3, pattern='^' + str(R_E_3) + '$'),
             ],
             SECOND: [
-                CallbackQueryHandler(start_over, pattern='^' + str(START_OVER) + '$'),
                 CallbackQueryHandler(end, pattern='^' + str(END) + '$'),
             ],
         },
