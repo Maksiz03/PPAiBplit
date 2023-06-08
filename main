@@ -1,4 +1,6 @@
 import logging
+
+import telegram
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     CommandHandler,
@@ -33,6 +35,8 @@ mdb = MongoClient(MONGODB_LINK)[MONGO_DB]
 CHOOSING, TYPING_REPLY, TYPING_CHOICE = range(3)
 # Этапы/состояния разговора
 FIRST, SECOND = range(2)
+
+INFO = range(1)
 # Данные обратного вызова
 START_OVER, END, \
     C_Q_1, C_Q_2, C_Q_3, C_Q_4, C_Q_5, C_Q_6, C_Q_7, C_Q_8_1, C_Q_8_2, \
@@ -48,9 +52,10 @@ global user_data1
 recommendations = ''
 
 reply_keyboard = [
-    ["Ваше ФИ", "Номер телефона"],
-    ["ФИ ребенка", "Возраст ребенка в месяцах"],
-    ["Далее"],
+    ["Ваше ФИО", "Номер телефона"],
+    ["ФИО ребенка", "Возраст ребенка в месяцах"],
+    ['Как работает бот?'],
+    ["Далее"]
 ]
 markup = ReplyKeyboardMarkup(reply_keyboard, one_time_keyboard=True)
 
@@ -69,8 +74,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user = search_or_save_user(mdb, update.effective_user)
     print(user)
     await update.message.reply_text(
-         "Вас приветствует медицинский бот - АйБолит! После прохождения опроса я выдам вам не только рекомендации, которые могут помочь вашему малышу, но и соберу все симптомы в один файл, чтобы вы могли отправить его своему врачу.",
-        reply_markup=markup,
+        text="Вас приветствует медицинский бот - АйБолит! После прохождения опроса я выдам "
+             "вам не только рекомендации, которые могут помочь вашему малышу, но и соберу "
+             "все симптомы в один файл, чтобы вы могли отправить его своему врачу.",
+        reply_markup=markup
     )
     return CHOOSING
 
@@ -79,7 +86,7 @@ async def regular_choice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     """Запрос информации о выбранном предопределенном выборе."""
     text = update.message.text
     context.user_data["choice"] = text
-    await update.message.reply_text(f"Напишите {text.lower()}")
+    await update.message.reply_text(f"Напишите {text}")
     return TYPING_REPLY
 
 
@@ -112,25 +119,18 @@ async def received_information(update: Update, context: ContextTypes.DEFAULT_TYP
     return CHOOSING
 
 
-async def done(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Вывод собранной информации и завершение разговора."""
-    user_data = context.user_data
-    if "choice" in user_data:
-        del user_data["choice"]
-
-    await update.message.reply_text(
-        f"I learned these facts about you: {facts_to_str(user_data)}Until next time!",
-        reply_markup=ReplyKeyboardRemove(),
-    )
-    user_data.clear()
-    return ConversationHandler.END
-
-
 async def dbR_Q_1(update, _):
     await asyncio.sleep(0)
     user = search_or_save_user(mdb, update.effective_user)
     savebd = save_user_bd(mdb, user, 'Какие жалобы беспокоят Вашего ребенка?', 'Срыгивания')
     print(savebd)
+
+
+async def info(update, _):
+    await update.message.reply_text(
+        'То, как работает бот', reply_markup=markup
+    )
+    return CHOOSING
 
 
 async def firstQue(update, _):
@@ -152,7 +152,7 @@ async def firstQue(update, _):
             InlineKeyboardButton("Колики", callback_data=str(C_Q_1))
         ],
         [
-            InlineKeyboardButton("Изменение стула: задержка (запоры) или учащенный стул", callback_data=str(S_Q_1))
+            InlineKeyboardButton("Изменение стула: запоры или учащенный", callback_data=str(S_Q_1))
         ]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -175,7 +175,10 @@ async def colic_q_1(update, _):
         ],
         [
             InlineKeyboardButton("Более 4-х раз в неделю", callback_data=str(C_Q_2))
-        ]
+        ],
+        [
+            InlineKeyboardButton("Назад", callback_data=str(START_OVER))
+        ],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await query.edit_message_text(
@@ -379,7 +382,7 @@ async def colic_end_1(update, _):
     query = update.callback_query
     await query.answer()
     global recommendations
-    recommendations += "\nСрочно обратиться к врачу-педиатру.\n"
+    recommendations += "Срочно обратиться к врачу педиатру"
     keyboard = [
         [
             InlineKeyboardButton("Вашего ребенка беспокоит что-то еще?", callback_data=str(START_OVER))
@@ -390,7 +393,8 @@ async def colic_end_1(update, _):
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await query.edit_message_text(
-        text="Срочно обратиться к врачу-педиатру.",
+        text="<b>Срочно обратиться к врачу педиатру</b>",
+        parse_mode='HTML',
         reply_markup=reply_markup
     )
     return SECOND
@@ -400,15 +404,15 @@ async def colic_end_2(update, _):
     query = update.callback_query
     await query.answer()
     global recommendations
-    recommendations += "\nОбратиться к врачу-педиатру\n"\
-                      "Рекомендуется кормящей маме исключить из питания продукты, " \
-                      "повышающие газообразование в кишечнике:\n"\
-                      "сахар, кондитерские изделия, виноград, мясные " \
-                      "бульоны, консервы, колбасы, цельное молоко заменить "\
-                      "на кисломолочные продукты;\n"\
-                      "Рекомендуется ребенку:\n"\
-                      "сухое тепло на живот (теплая пеленка или грелка), "\
-                      "поглаживание живота по часовой стрелке и выкладывание на живот перед кормлением.\n"
+    recommendations += "Обратиться к врачу педиатру\n" \
+                       "Рекомендуется кормящей маме исключить из питания продукты, " \
+                       "повышающие газообразование в кишечнике:\n" \
+                       "сахар, кондитерские изделия, виноград, мясные " \
+                       "бульоны, консервы, колбасы, цельное молоко заменить " \
+                       "на кисломолочные продукты;\n" \
+                       "Рекомендуется ребенку:\n" \
+                       "сухое тепло на живот (теплая пеленка или грелка), " \
+                       "поглаживание живота по часовой стрелке и выкладывание на живот перед кормлением.\n"
     keyboard = [
         [
             InlineKeyboardButton("Вашего ребенка беспокоит что-то еще?", callback_data=str(START_OVER))
@@ -419,13 +423,14 @@ async def colic_end_2(update, _):
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await query.edit_message_text(
-        text="Обратиться к врачу-педиатру\n"
+        text="<b>Обратиться к врачу педиатру</b>\n"
              "Рекомендуется кормящей маме исключить из питания продукты, повышающие газообразование в кишечнике:\n"
              "сахар, кондитерские изделия, виноград, мясные бульоны, консервы, колбасы, цельное молоко заменить "
              "на кисломолочные продукты;\n"
              "Рекомендуется ребенку:\n"
              "сухое тепло на живот (теплая пеленка или грелка), "
              "поглаживание живота по часовой стрелке и выкладывание на живот перед кормлением.",
+        parse_mode='HTML',
         reply_markup=reply_markup
     )
     return SECOND
@@ -435,9 +440,9 @@ async def colic_end_3(update, _):
     query = update.callback_query
     await query.answer()
     global recommendations
-    recommendations += "\nОбратиться к врачу-педиатру для коррекции режима питания смеси;\n"\
-                       "Рекомендуется ребенку:\n"\
-                       "сухое тепло на живот (теплая пеленка или грелка), поглаживание живота по часовой "\
+    recommendations += "\n<b>Обратиться к врачу педиатру</b> для коррекции режима питания смеси;\n" \
+                       "Рекомендуется ребенку:\n" \
+                       "сухое тепло на живот (теплая пеленка или грелка), поглаживание живота по часовой " \
                        "стрелке и выкладывание на живот перед кормлением.\n"
     keyboard = [
         [
@@ -449,11 +454,13 @@ async def colic_end_3(update, _):
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await query.edit_message_text(
-        text="Обратиться к врачу-педиатру для коррекции режима питания смеси;\n"
+        text="<b>Обратиться к врачу педиатру</b> для коррекции режима питания смеси;\n"
              "Рекомендуется ребенку:\n"
              "сухое тепло на живот (теплая пеленка или грелка), поглаживание живота по часовой "
              "стрелке и выкладывание на живот перед кормлением.",
+        parse_mode='HTML',
         reply_markup=reply_markup
+
     )
     return SECOND
 
@@ -474,6 +481,9 @@ async def stool_q_1(update, _):
         ],
         [
             InlineKeyboardButton("2 раза в неделю и реже", callback_data=str(S_Q_2))
+        ],
+        [
+            InlineKeyboardButton("Назад", callback_data=str(START_OVER))
         ],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -773,7 +783,7 @@ async def stool_end_1(update, _):
     query = update.callback_query
     await query.answer()
     global recommendations
-    recommendations += "\nСрочно обратиться к врачу-педиатру\n"
+    recommendations += "Срочно обратиться к врачу педиатру\n"
     keyboard = [
         [
             InlineKeyboardButton("Вашего ребенка беспокоит что-то еще?", callback_data=str(START_OVER))
@@ -784,7 +794,8 @@ async def stool_end_1(update, _):
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await query.edit_message_text(
-        text="Срочно обратиться к врачу-педиатру",
+        text="<b>Срочно обратиться к врачу педиатру</b>",
+        parse_mode='HTML',
         reply_markup=reply_markup
     )
     return SECOND
@@ -794,10 +805,10 @@ async def stool_end_2(update, _):
     query = update.callback_query
     await query.answer()
     global recommendations
-    recommendations += "\nОбратиться к врачу-педиатру для нормализации режима питания;\n"\
-                       "Рекомендовано коррекция пищевого рациона кормящей мамы:\n"\
-                       "увеличить в рационе продукты с высоким содержанием пищевых "\
-                       "волокон (овощи, фрукты), достаточный питьевой режим, кисломолочные продукты;\n"\
+    recommendations += "\n<b>Обратиться к врачу педиатру</b> для нормализации режима питания;\n" \
+                       "Рекомендовано коррекция пищевого рациона кормящей мамы:\n" \
+                       "увеличить в рационе продукты с высоким содержанием пищевых " \
+                       "волокон (овощи, фрукты), достаточный питьевой режим, кисломолочные продукты;\n" \
                        "Введение прикорма с 4-х месяцев – овощное пюре.\n"
     keyboard = [
         [
@@ -809,11 +820,12 @@ async def stool_end_2(update, _):
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await query.edit_message_text(
-        text="Обратиться к врачу-педиатру для нормализации режима питания;\n"
+        text="<b>Обратиться к врачу педиатру</b> для нормализации режима питания;\n"
              "Рекомендовано коррекция пищевого рациона кормящей мамы:\n"
              "увеличить в рационе продукты с высоким содержанием пищевых "
              "волокон (овощи, фрукты), достаточный питьевой режим, кисломолочные продукты;\n"
              "Введение прикорма с 4-х месяцев – овощное пюре.",
+        parse_mode='HTML',
         reply_markup=reply_markup
     )
     return SECOND
@@ -823,8 +835,8 @@ async def stool_end_3(update, _):
     query = update.callback_query
     await query.answer()
     global recommendations
-    recommendations += "\nРекомендовано обратиться к врачу-педиатру для коррекции "\
-                       "пищевого режима питания, питьевого режима питания и выбора оптимальной смеси;\n"\
+    recommendations += "\n<b>Обратиться к врачу педиатру</b> для коррекции " \
+                       "пищевого режима питания, питьевого режима питания и выбора оптимальной смеси;\n" \
                        "Введение прикорма с 4-х месяцев – овощное пюре.\n"
     keyboard = [
         [
@@ -836,9 +848,10 @@ async def stool_end_3(update, _):
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await query.edit_message_text(
-        text="Рекомендовано обратиться к врачу-педиатру для коррекции "
+        text="<b>Обратиться к врачу педиатру</b> для коррекции "
              "пищевого режима питания, питьевого режима питания и выбора оптимальной смеси;\n"
              "Введение прикорма с 4-х месяцев – овощное пюре.",
+        parse_mode='HTML',
         reply_markup=reply_markup
     )
     return SECOND
@@ -858,6 +871,9 @@ async def reg_q_1(update, _):
         ],
         [
             InlineKeyboardButton("Более 2-х недель", callback_data=str(R_Q_2))
+        ],
+        [
+            InlineKeyboardButton("Назад", callback_data=str(START_OVER))
         ],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -1081,11 +1097,11 @@ async def reg_end_1(update, _):
     await query.answer()
     global recommendations
     recommendations += "\nРекомендована постуральная терапия: \n" \
-                       "Кормление ребенка под углом 45-60 градусов;\n"\
-                       "Удерживать ребенка после кормления в вертикальном положении в течение 20-30 минут;\n"\
-                       "Следить за тем, чтобы младенец заглатывал сосок "\
-                       "вместе с ареолой для предотвращения заглатывания воздуха;\n"\
-                       "При кормлении из бутылки необходимо полностью заполнять соску;\n"\
+                       "Кормление ребенка под углом 45-60 градусов;\n" \
+                       "Удерживать ребенка после кормления в вертикальном положении в течение 20-30 минут;\n" \
+                       "Следить за тем, чтобы младенец заглатывал сосок " \
+                       "вместе с ареолой для предотвращения заглатывания воздуха;\n" \
+                       "При кормлении из бутылки необходимо полностью заполнять соску;\n" \
                        "Следить за тем, чтобы одежда не сдавливала живот ребенка.\n"
     keyboard = [
         [
@@ -1111,11 +1127,11 @@ async def reg_end_2(update, _):
     query = update.callback_query
     await query.answer()
     global recommendations
-    recommendations += "\nРекомендовано обратиться к врачу-педиатру\n"\
-                       "Рекомендована постуральная терапия: \nКормление ребенка под углом 45-60 градусов;\n"\
-                       "Удерживать ребенка после кормления в вертикальном положении в течение 20-30 минут;\n"\
-                       "Следить за тем, чтобы младенец заглатывал сосок вместе с ареолой для предотвращения заглатывания воздуха;\n"\
-                       "При кормлении из бутылки необходимо полностью заполнять соску;\n"\
+    recommendations += "Обратиться к врачу педиатру\n" \
+                       "Рекомендована постуральная терапия: \nКормление ребенка под углом 45-60 градусов;\n" \
+                       "Удерживать ребенка после кормления в вертикальном положении в течение 20-30 минут;\n" \
+                       "Следить за тем, чтобы младенец заглатывал сосок вместе с ареолой для предотвращения заглатывания воздуха;\n" \
+                       "При кормлении из бутылки необходимо полностью заполнять соску;\n" \
                        "Следить за тем, чтобы одежда не сдавливала живот ребенка.\n"
     keyboard = [
         [
@@ -1127,12 +1143,14 @@ async def reg_end_2(update, _):
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await query.edit_message_text(
-        text="Рекомендовано обратиться к врачу-педиатру\n"
+        text="<b>Обратиться к врачу педиатру</b>\n"
              "Рекомендована постуральная терапия: \nКормление ребенка под углом 45-60 градусов;\n"
              "Удерживать ребенка после кормления в вертикальном положении в течение 20-30 минут;\n"
-             "Следить за тем, чтобы младенец заглатывал сосок вместе с ареолой для предотвращения заглатывания воздуха;\n"
+             "Следить за тем, чтобы младенец заглатывал сосок вместе с ареолой для предотвращения заглатывания "
+             "воздуха;\n"
              "При кормлении из бутылки необходимо полностью заполнять соску;\n"
              "Следить за тем, чтобы одежда не сдавливала живот ребенка.",
+        parse_mode='HTML',
         reply_markup=reply_markup
     )
     return SECOND
@@ -1142,7 +1160,7 @@ async def reg_end_3(update, _):
     query = update.callback_query
     await query.answer()
     global recommendations
-    recommendations += "\nСрочно обратиться к врачу педиатру.\n" \
+    recommendations += "Срочно обратиться к врачу педиатру\n" \
                        "Рекомендована постуральная терапия: \n" \
                        "Кормление ребенка под углом 45-60 градусов;\n" \
                        "Удерживать ребенка после кормления в вертикальном положении в течение 20-30 минут;\n" \
@@ -1192,105 +1210,26 @@ async def start_over(update, _):
     return FIRST
 
 
-async def end_REG_1(update, _):
-    """Возвращает `ConversationHandler.END`, который говорит
-    `ConversationHandler` что разговор окончен"""
-    query = update.callback_query
-    await query.answer()
-    await query.edit_message_text(
-        text=recommendations, )
-    return ConversationHandler.END
-
-
-async def end_REG_2(update, _):
-    """Возвращает `ConversationHandler.END`, который говорит
-    `ConversationHandler` что разговор окончен"""
-    query = update.callback_query
-    await query.answer()
-    await query.edit_message_text(text="Рекомендовано обратиться к врачу-педиатру\n"
-                                       "Рекомендована постуральная терапия: \nКормление ребенка под углом 45-60 градусов;\n"
-                                       "Удерживать ребенка после кормления в вертикальном положении в течение 20-30 минут;\n"
-                                       "Следить за тем, чтобы младенец заглатывал сосок вместе с ареолой для предотвращения заглатывания воздуха;\n"
-                                       "При кормлении из бутылки необходимо полностью заполнять соску;\n"
-                                       "Следить за тем, чтобы одежда не сдавливала живот ребенка.")
-    return ConversationHandler.END
-
-
-async def end_REG_3(update, _):
-    """Возвращает `ConversationHandler.END`, который говорит
-    `ConversationHandler` что разговор окончен"""
-    query = update.callback_query
-    await query.answer()
-    await query.edit_message_text(text="Срочно обратиться к врачу педиатру.\n"
-                                       "Рекомендована постуральная терапия: \nКормление ребенка под углом 45-60 градусов;\n"
-                                       "Удерживать ребенка после кормления в вертикальном положении в течение 20-30 минут;\n"
-                                       "Следить за тем, чтобы младенец заглатывал сосок вместе с ареолой для предотвращения заглатывания воздуха;\n"
-                                       "При кормлении из бутылки необходимо полностью заполнять соску;\n"
-                                       "Следить за тем, чтобы одежда не сдавливала живот ребенка.", )
-    return ConversationHandler.END
-
-
-async def end_STOOL_1(update, _):
-    """Возвращает `ConversationHandler.END`, который говорит
-    `ConversationHandler` что разговор окончен"""
-    query = update.callback_query
-    await query.answer()
-    await query.edit_message_text(text=recommendations)
-    return ConversationHandler.END
-
-
-async def end_STOOL_2(update, _):
-    """Возвращает `ConversationHandler.END`, который говорит
-    `ConversationHandler` что разговор окончен"""
-    query = update.callback_query
-    await query.answer()
-    await query.edit_message_text(text=recommendations)
-    return ConversationHandler.END
-
-
-async def end_STOOL_3(update, _):
-    """Возвращает `ConversationHandler.END`, который говорит
-    `ConversationHandler` что разговор окончен"""
-    query = update.callback_query
-    await query.answer()
-    await query.edit_message_text(text=recommendations)
-    return ConversationHandler.END
-
-
-async def end_COLIC_1(update, _):
-    """Возвращает `ConversationHandler.END`, который говорит
-    `ConversationHandler` что разговор окончен"""
-    query = update.callback_query
-    await query.answer()
-    await query.edit_message_text(text="Срочно обратиться к врачу-педиатру.")
-    return ConversationHandler.END
-
-
-async def end_COLIC_2(update, _):
-    """Возвращает `ConversationHandler.END`, который говорит
-    `ConversationHandler` что разговор окончен"""
-    query = update.callback_query
-    await query.answer()
-    await query.edit_message_text(text="Обратиться к врачу-педиатру\n"
-                                       "Рекомендуется кормящей маме исключить из питания продукты, повышающие газообразование в кишечнике:\n"
-                                       "сахар, кондитерские изделия, виноград, мясные бульоны, консервы, колбасы, цельное молоко заменить "
-                                       "на кисломолочные продукты;\n"
-                                       "Рекомендуется ребенку:\n"
-                                       "сухое тепло на живот (теплая пеленка или грелка), "
-                                       "поглаживание живота по часовой стрелке и выкладывание на живот перед кормлением.")
-    return ConversationHandler.END
-
-
-async def end_COLIC_3(update, _):
-    """Возвращает `ConversationHandler.END`, который говорит
-    `ConversationHandler` что разговор окончен"""
-    query = update.callback_query
-    await query.answer()
-    await query.edit_message_text(text="Обратиться к врачу-педиатру для коррекции режима питания смеси;\n"
-                                       "Рекомендуется ребенку:\n"
-                                       "сухое тепло на живот (теплая пеленка или грелка), поглаживание живота по часовой "
-                                       "стрелке и выкладывание на живот перед кормлением.", )
-    return ConversationHandler.END
+def clear(recommendations):
+    list = recommendations.split('\n')
+    str_1 = "Обратиться к врачу педиатру"
+    str_2 = "Срочно обратиться к врачу педиатру"
+    if str_2 in list:
+        while str_1 in list:
+            list.remove(str_1)
+        while '' in list:
+            list.remove('')
+        while str_2 in list:
+            list.remove(str_2)
+        new_rec = "\n<b>Срочно обратиться к врачу педиатру</b>.\n" + ('\n').join(list)
+        return new_rec
+    else:
+        while str_1 in list:
+            list.remove(str_1)
+        while '' in list:
+            list.remove('')
+        new_rec = "\n<b>Обратиться к врачу педиатру</b>.\n" + ('\n').join(list)
+        return new_rec
 
 
 async def end(update, _):
@@ -1300,7 +1239,7 @@ async def end(update, _):
     await query.answer()
     await query.edit_message_text(text=f"Спасибо за прохождение нашего опроса!\n"
                                        f"Наши рекомендации:\n"
-                                       f" {recommendations}")
+                                       f" {clear(recommendations)}", parse_mode='HTML')
     return ConversationHandler.END
 
 
@@ -1315,23 +1254,23 @@ def search_or_save_user(mdb, effective_user):
     return user
 
 
-def save_user_anketa(mdb,user,user_data):
+def save_user_anketa(mdb, user, user_data):
     mdb.users.update_one(
-        {'_id':user['_id']},
-        {'$set':{'anketa':{ 'ФИ' : user_data['Ваше ФИ'],
-                            'Номер телефона' : user_data['Номер телефона'],
-                            'ФИ ребенка': user_data['ФИ ребенка'],
-                            'Возраст ребенка в месяцах': user_data['Возраст ребенка в месяцах']}}
-        }
+        {'_id': user['_id']},
+        {'$set': {'anketa': {'ФИО': user_data['Ваше ФИО'],
+                             'Номер телефона': user_data['Номер телефона'],
+                             'ФИО ребенка': user_data['ФИО ребенка'],
+                             'Возраст ребенка в месяцах': user_data['Возраст ребенка в месяцах']}}
+         }
     )
     mdb.users.update_one(
         {'_id': user['_id']},
-        {'$set': {'Срыгивания':{'В течение какого времени срыгивания беспокоят Вашего ребенка?' : None,
-                               'Какой объем одного срыгивания?': None,
-                               'Какой характер содержимого срыгивания?': None,
-                               'Есть ли у Вашего ребенка одна или несколько из перечисленных жалоб: снижение массы тела, рвота фонтаном, рвота с примесью крови или желчи?': None,
-                               'Через какое время после кормления происходит срыгивание?': None,
-                               'Как часто происходит срыгивание?': None}}
+        {'$set': {'Срыгивания': {'В течение какого времени срыгивания беспокоят Вашего ребенка?': None,
+                                 'Какой объем одного срыгивания?': None,
+                                 'Какой характер содержимого срыгивания?': None,
+                                 'Есть ли у Вашего ребенка одна или несколько из перечисленных жалоб: снижение массы тела, рвота фонтаном, рвота с примесью крови или желчи?': None,
+                                 'Через какое время после кормления происходит срыгивание?': None,
+                                 'Как часто происходит срыгивание?': None}}
          }
     )
     mdb.users.update_one(
@@ -1348,27 +1287,27 @@ def save_user_anketa(mdb,user,user_data):
     mdb.users.update_one(
         {'_id': user['_id']},
         {'$set': {'Изменение стул: задержка (запоры) или учащенный стул ':
-                            {'За прошедший месяц в среднем сколько дефекаций в неделю было у Вашего ребенка?': None,
-                             'Есть ли у Вашего ребенка одна или несколько из перечисленных жалоб: сухость кожи и слизистых, редкое мочеиспускание, язык обложен белым налетом, слабость и сонливость, западение родничка?': None,
-                             'На каком вскармливании Ваш ребенок?': None,
-                             'В течение последнего месяца Ваш ребенок сильно тужился во время дефекации? ': None,
-                             'Какой консистенции был стул у Ваш ребенок за прошедший месяц? ': None}}
+                      {'За прошедший месяц в среднем сколько дефекаций в неделю было у Вашего ребенка?': None,
+                       'Есть ли у Вашего ребенка одна или несколько из перечисленных жалоб: сухость кожи и слизистых, редкое мочеиспускание, язык обложен белым налетом, слабость и сонливость, западение родничка?': None,
+                       'На каком вскармливании Ваш ребенок?': None,
+                       'В течение последнего месяца Ваш ребенок сильно тужился во время дефекации? ': None,
+                       'Какой консистенции был стул у Ваш ребенок за прошедший месяц? ': None}}
          }
     )
     return user
 
 
-def save_user_bd(mdb,user,x,y,z):
+def save_user_bd(mdb, user, x, y, z):
     mdb.users.update_one(
-        {'_id':user['_id']},
+        {'_id': user['_id']},
         {'$set': {x: {y: z}
-       }}
+                  }}
     )
     return user
 
 
 if __name__ == '__main__':
-    app = Application.builder().token("6285362419:AAHXLWcfs8h_wMZfY5sEcbHpIpeQKb9V8BI").build()
+    app = Application.builder().token("6018288883:AAE1Yae2qiajlfmGhr91Fjw0016rFwupxJg").build()
 
     # Настройка обработчика разговоров с состояниями `FIRST` и `SECOND`
     # Используем параметр `pattern` для передачи `CallbackQueries` с
@@ -1422,6 +1361,7 @@ if __name__ == '__main__':
                 CallbackQueryHandler(reg_end_1, pattern='^' + str(R_E_1) + '$'),
                 CallbackQueryHandler(reg_end_2, pattern='^' + str(R_E_2) + '$'),
                 CallbackQueryHandler(reg_end_3, pattern='^' + str(R_E_3) + '$'),
+                CallbackQueryHandler(start_over, pattern='^' + str(START_OVER) + '$'),
             ],
             SECOND: [
                 CallbackQueryHandler(start_over, pattern='^' + str(START_OVER) + '$'),
@@ -1436,7 +1376,7 @@ if __name__ == '__main__':
         states={
             CHOOSING: [
                 MessageHandler(
-                    filters.Regex("^(Ваше ФИ|Номер телефона|ФИ ребенка|Возраст ребенка в месяцах)$"), regular_choice
+                    filters.Regex("^(Ваше ФИО|Номер телефона|ФИО ребенка|Возраст ребенка в месяцах)$"), regular_choice
                 ),
                 MessageHandler(filters.Regex("Возраст ребенка"), custom_choice),
             ],
@@ -1455,9 +1395,17 @@ if __name__ == '__main__':
         fallbacks=[CommandHandler("start", start)],
     )
 
+    conv_handler3 = ConversationHandler(
+        entry_points=[MessageHandler(filters.Regex("Как работает бот?"), info)],
+        states={
+        },
+        fallbacks=[MessageHandler(filters.Regex("Как работает бот?"), info)],
+    )
+
     # Добавляем `ConversationHandler` в диспетчер, который
     # будет использоваться для обработки обновлений
     app.add_handler(conv_handler)
     app.add_handler(conv_handler2)
+    app.add_handler(conv_handler3)
 
     app.run_polling()
