@@ -1,12 +1,22 @@
 import logging
 
 import telegram
+from transliterate import translit
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     CommandHandler,
     CallbackQueryHandler,
     ConversationHandler, Application,
 )
+
+import email, smtplib, ssl
+
+from email import encoders
+from email.mime.base import MIMEBase
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+
+import csv
 import pymongo
 import asyncio
 from pymongo import MongoClient
@@ -21,10 +31,12 @@ from telegram.ext import (
     MessageHandler,
     filters,
 )
+import pandas as pd
 
 MONGODB_LINK = "mongodb+srv://urfubot:Maksiz03@cluster0.hfhv7m8.mongodb.net/"
 MONGO_DB = "urfubot"
 mdb = MongoClient(MONGODB_LINK)[MONGO_DB]
+
 # Ведение журнала логов
 # logging.basicConfig(
 #     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO
@@ -39,15 +51,50 @@ FIRST, SECOND = range(2)
 INFO = range(1)
 # Данные обратного вызова
 START_OVER, END, \
-    C_Q_1, C_Q_2, C_Q_3, C_Q_4, C_Q_5, C_Q_6, C_Q_7, C_Q_8_1, C_Q_8_2, \
-    C_E_1, C_E_2, C_E_3, \
-    S_Q_1, S_Q_2, S_Q_3_1, S_Q_3_2, S_Q_4_1, S_Q_4_2, S_Q_4_3, S_Q_4_4, \
-    S_Q_5_1, S_Q_5_2, S_Q_5_3, S_Q_5_4, \
-    S_E_1, S_E_2, S_E_3, \
-    R_Q_1, R_Q_2, R_Q_3_1, R_Q_3_2, R_Q_4_1, \
-    R_Q_4_2, R_Q_5_1, R_Q_5_2, R_Q_6_1, R_Q_6_2, \
-    R_E_1, R_E_2, R_E_3 = range(42)
+C_Q_1, C_Q_2_1, C_Q_2_2, C_Q_3_1, C_Q_3_2, C_Q_3_3, C_Q_4_1, C_Q_4_2, C_Q_4_3, C_Q_4_4, C_Q_5_1, C_Q_5_2, C_Q_6_1, C_Q_6_2, C_Q_7_1, C_Q_7_2, C_Q_8_1, C_Q_8_2, \
+C_E_1, C_E_2, C_E_3, \
+S_Q_1, S_Q_2_1, S_Q_2_2, S_Q_2_3, S_Q_2_4, S_Q_3_1, S_Q_3_2, S_Q_4_1, S_Q_4_2, S_Q_4_3, S_Q_4_4, \
+S_Q_5_1_1, S_Q_5_1_2, S_Q_5_2_1, S_Q_5_2_2, S_Q_5_3_1, S_Q_5_3_2, S_Q_5_4_1, S_Q_5_4_2, \
+S_E_1_1, S_E_1_2, S_E_2_1, S_E_2_2, S_E_3_1, S_E_3_2, \
+R_Q_1, R_Q_2_1, R_Q_2_2, R_Q_2_3, R_Q_3_1_1, R_Q_3_1_2, R_Q_3_2, R_Q_4_1_1, R_Q_4_1_2, \
+R_Q_4_2_1, R_Q_4_2_2, R_Q_5_1, R_Q_5_2_1, R_Q_5_2_2, R_Q_6_1_1, R_Q_6_1_2, R_Q_6_2_1, R_Q_6_2_2, \
+R_E_1, R_E_2_1, R_E_2_2, R_E_3 = range(70)
 
+dict_metod = {0: START_OVER, 1: END, 2: C_Q_1, 3: C_Q_2_1, 4: C_Q_2_2, 5: C_Q_3_1, 6: C_Q_3_2, 7: C_Q_3_3, 8: C_Q_4_1,
+              9: C_Q_4_2,
+              10: C_Q_4_3, 11: C_Q_4_4, 12: C_Q_5_1, 13: C_Q_5_2, 14: C_Q_6_1, 15: C_Q_6_2, 16: C_Q_7_1, 17: C_Q_7_2,
+              18: C_Q_8_1, 19: C_Q_8_2,
+              20: None, 21: None, 22: None, 23: S_Q_1, 24: S_Q_2_1, 25: S_Q_2_2, 26: S_Q_2_3, 27: S_Q_2_4, 28: S_Q_3_1,
+              29: S_Q_3_2, 30: S_Q_4_1, 31: S_Q_4_2, 32: S_Q_4_3,
+              33: S_Q_4_4, 34: S_Q_5_1_1, 35: S_Q_5_1_2, 36: S_Q_5_2_1, 37: S_Q_5_2_2, 38: S_Q_5_3_1, 39: S_Q_5_3_2,
+              40: S_Q_5_4_1, 41: S_Q_5_4_2,
+              42: S_E_1_1, 43: S_E_1_2, 44: S_E_2_1, 45: S_E_2_2, 46: S_E_3_1, 47: S_E_3_2,
+              48: R_Q_1, 49: R_Q_2_1, 50: R_Q_2_2, 51: R_Q_2_3, 52: R_Q_3_1_1, 53: R_Q_3_1_2, 54: R_Q_3_2,
+              55: R_Q_4_1_1, 56: R_Q_4_1_2,
+              57: R_Q_4_2_1, 58: R_Q_4_2_2, 59: R_Q_5_1, 60: R_Q_5_2_1, 61: R_Q_5_2_2, 62: R_Q_6_1_1, 63: R_Q_6_1_2,
+              64: R_Q_6_2_1, 65: R_Q_6_2_2}
+
+dict_query = {0: 0}
+dict_anketa = {'Ваше ФИО': None,'Номер телефона':None,'ФИО ребенка':None,'Возраст ребенка в месяцах':None}
+dict_mongo = {'В течение какого времени срыгивания беспокоят Вашего ребенка?': None,
+              'Какой объем одного срыгивания?': None,
+              'Какой характер содержимого срыгивания?': None,
+              'Есть ли у Вашего ребенка одна или несколько из перечисленных жалоб- снижение массы тела; рвота фонтаном; рвота с примесью крови или желчи?': None,
+              'Через какое время после кормления происходит срыгивание?': None,
+              'Как часто происходит срыгивание?': None,
+              'Как часто Вашего ребенка беспокоят колики?': None,
+              'В течение какого времени Вашего ребенка беспокоят колики?': None,
+              'В какое время суток беспокоят колики?': None,
+              'Есть ли связь возникновения колик с приемом пищи?': None,
+              'Проходят ли колики после стула?': None,
+              'Продолжительность одного эпизода колик?': None,
+              'Есть ли у Вашего ребенка одна или несколько из перечисленных жалоб- Упорный крик с изменением тональности; повторные рвоты; рвота с кровью; кровь в стуле; потеря массы тела; задержка роста; лихорадка (повышение температуры)?': None,
+              'За прошедший месяц в среднем сколько дефекаций в неделю было у Вашего ребенка?': None,
+              'Есть ли у Вашего ребенка одна или несколько из перечисленных жалоб- сухость кожи и слизистых; редкое мочеиспускание; язык обложен белым налетом; слабость и сонливость; западение родничка?': None,
+              'На каком вскармливании Ваш ребенок?': None,
+              'В течение последнего месяца Ваш ребенок сильно тужился во время дефекации?': None,
+              'Какой консистенции был стул у Ваш ребенок за прошедший месяц?': None
+              }
 global user_data1
 recommendations = ''
 
@@ -72,7 +119,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     global recommendations
     recommendations = ''
     user = search_or_save_user(mdb, update.effective_user)
-    print(user)
+
     await update.message.reply_text(
         text="Вас приветствует медицинский бот - АйБолит! После прохождения опроса я выдам "
              "вам не только рекомендации, которые могут помочь вашему малышу, но и соберу "
@@ -104,18 +151,14 @@ async def received_information(update: Update, context: ContextTypes.DEFAULT_TYP
     text = update.message.text
     category = user_data["choice"]
     user_data[category] = text
+    dict_anketa[category] = text
     del user_data["choice"]
 
     await update.message.reply_text(
         f"{facts_to_str(user_data)}",
         reply_markup=markup,
     )
-    if len(user_data) >= 4:
-        user = search_or_save_user(mdb, update.effective_user)
-        anketa = save_user_anketa(mdb, user, user_data)
-        print(anketa)
-    else:
-        pass
+
     return CHOOSING
 
 
@@ -128,13 +171,14 @@ async def dbR_Q_1(update, _):
 
 async def info(update, _):
     await update.message.reply_text(
-        'Давайте познакомимся поближе! Я - бот Айболит, работа которого направлена на помощь родителям младенцев. Я предоставлю Вам опрос по трём пунктам, пройдя который Вы получите рекомендации. Мы не только поможем Вам советом, но и направим к врачу, в случае выявления плохих симптомов. Полученные ответы будут преобразованы в excel-файл и отправлены вашему врачу.\n \n 💡Чтобы запустить опрос, введите команду "/start".\n 💡 Вы всегда можете изменить свой ответ, нажав на кнопку "Назад".\n 💡 Перейдя по кнопке "Отправить Ваши данные. врачу педиатру" Вы получите общие рекомендации по всем направлениям, а файл с Вашими ответами отправится врачу.\n \n❗Полученный excel-файл будет назван Вашими ФИО, поэтому не пропускайте данный этап, чтобы врач в дальнейшем смог найти Ваши результаты. По всем вопросам можете обращаться на почту: tatianamartynova@yandex.ru ', reply_markup=markup
+        'Давайте познакомимся поближе! Я - бот Айболит, работа которого направлена на помощь родителям младенцев. Я предоставлю Вам опрос по трём пунктам, пройдя который Вы получите рекомендации.Мы не только поможем Вам советом, но и направим к врачу, в случае выявления плохих симптомов.Полученные ответы будут преобразованы в excel-файл и отправлены врачу. \n \n💡 Чтобы запустить опрос, введите команду "/start".\n💡 Вы всегда можете изменить свой ответ, нажав на кнопку "Назад".\n💡 Перейдя по кнопке "Отправить Ваши данные врачу педиатру" Вы получите общие рекомендации по всем направлениям, а файл с ответами отправится врачу.\n\n❗Полученный excel-файл будет назван Вашими ФИО, поэтому не пропускайте данный этап, чтобы врач в дальнейшем смог найти Ваши результаты.\n\nПо всем вопросам можете обращаться на почту: tatianamartynova@yandex.ru', reply_markup=markup
     )
     return CHOOSING
 
 
-
 async def firstQue(update, _):
+    user = search_or_save_user(mdb, update.effective_user)
+    anketa = save_user_anketa(mdb, user)
     """Вызывается по команде `/start`."""
     # Получаем пользователя, который запустил команду `/start`
     global recommendations
@@ -168,14 +212,15 @@ async def firstQue(update, _):
 
 async def colic_q_1(update, _):
     """Показ нового выбора кнопок"""
+    num = question_number(update.callback_query.data)
     query = update.callback_query
     await query.answer()
     keyboard = [
         [
-            InlineKeyboardButton("Менее 3-х раз в неделю", callback_data=str(C_Q_2))
+            InlineKeyboardButton("Менее 3-х раз в неделю", callback_data=str(C_Q_2_1))
         ],
         [
-            InlineKeyboardButton("Более 4-х раз в неделю", callback_data=str(C_Q_2))
+            InlineKeyboardButton("Более 4-х раз в неделю", callback_data=str(C_Q_2_2))
         ],
         [
             InlineKeyboardButton("Назад", callback_data=str(START_OVER))
@@ -188,19 +233,23 @@ async def colic_q_1(update, _):
     return FIRST
 
 
-async def colic_q_2(update, _):
+async def colic_q_2_1(update, _):
     """Показ нового выбора кнопок"""
+    num = question_number(update.callback_query.data)
+    # user = search_or_save_user(mdb, update.effective_user)
+    # savebd = save_user_bd(mdb, user,'Колики', 'Как часто Вашего ребенка беспокоят колики?', 'Менее 3-х раз в неделю')
+    dict_mongo["Как часто Вашего ребенка беспокоят колики?"] = "Менее 3-х раз в неделю"
     query = update.callback_query
     await query.answer()
     keyboard = [
         [
-            InlineKeyboardButton("Менее 1 недели", callback_data=str(C_Q_3))
+            InlineKeyboardButton("Менее 1 недели", callback_data=str(C_Q_3_1))
         ],
         [
-            InlineKeyboardButton("Менее 2-х недель", callback_data=str(C_Q_3))
+            InlineKeyboardButton("Менее 2-х недель", callback_data=str(C_Q_3_2))
         ],
         [
-            InlineKeyboardButton("Более 2-х недель", callback_data=str(C_Q_3))
+            InlineKeyboardButton("Более 2-х недель", callback_data=str(C_Q_3_3))
         ],
         [
             InlineKeyboardButton("Назад", callback_data=str(C_Q_1))
@@ -213,25 +262,57 @@ async def colic_q_2(update, _):
     return FIRST
 
 
-async def colic_q_3(update, _):
+async def colic_q_2_2(update, _):
     """Показ нового выбора кнопок"""
+    num = question_number(update.callback_query.data)
+    dict_mongo["Как часто Вашего ребенка беспокоят колики?"] = "Менее 4-х раз в неделю"
+    print(update.callback_query)
     query = update.callback_query
     await query.answer()
     keyboard = [
         [
-            InlineKeyboardButton("Утро", callback_data=str(C_Q_4))
+            InlineKeyboardButton("Менее 1 недели", callback_data=str(C_Q_3_1))
         ],
         [
-            InlineKeyboardButton("День", callback_data=str(C_Q_4))
+            InlineKeyboardButton("Менее 2-х недель", callback_data=str(C_Q_3_2))
         ],
         [
-            InlineKeyboardButton("Вечер", callback_data=str(C_Q_4))
+            InlineKeyboardButton("Более 2-х недель", callback_data=str(C_Q_3_3))
         ],
         [
-            InlineKeyboardButton("Ночь", callback_data=str(C_Q_4))
+            InlineKeyboardButton("Назад", callback_data=str(C_Q_1))
+        ],
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await query.edit_message_text(
+        text="В течение какого времени Вашего ребенка беспокоят колики?", reply_markup=reply_markup
+    )
+    return FIRST
+
+
+async def colic_q_3_1(update, _):
+    """Показ нового выбора кнопок"""
+    num = question_number(update.callback_query.data)
+    num = int(num)
+    print(dict_metod[dict_query[num]])
+    dict_mongo["В течение какого времени Вашего ребенка беспокоят колики?"] = "Менее 1 недели"
+    query = update.callback_query
+    await query.answer()
+    keyboard = [
+        [
+            InlineKeyboardButton("Утро", callback_data=str(C_Q_4_1))
         ],
         [
-            InlineKeyboardButton("Назад", callback_data=str(C_Q_2))
+            InlineKeyboardButton("День", callback_data=str(C_Q_4_2))
+        ],
+        [
+            InlineKeyboardButton("Вечер", callback_data=str(C_Q_4_3))
+        ],
+        [
+            InlineKeyboardButton("Ночь", callback_data=str(C_Q_4_4))
+        ],
+        [
+            InlineKeyboardButton("Назад", callback_data=str(dict_metod[dict_query[num]]))
         ],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -241,19 +322,87 @@ async def colic_q_3(update, _):
     return FIRST
 
 
-async def colic_q_4(update, _):
+async def colic_q_3_2(update, _):
+    num = question_number(update.callback_query.data)
+    num = int(num)
+    print(dict_metod[dict_query[num]])
     """Показ нового выбора кнопок"""
+    dict_mongo["В течение какого времени Вашего ребенка беспокоят колики?"] = "Менее 2-х недель"
+
     query = update.callback_query
     await query.answer()
     keyboard = [
         [
-            InlineKeyboardButton("Да", callback_data=str(C_Q_5))
+            InlineKeyboardButton("Утро", callback_data=str(C_Q_4_1))
         ],
         [
-            InlineKeyboardButton("Нет", callback_data=str(C_Q_5))
+            InlineKeyboardButton("День", callback_data=str(C_Q_4_2))
         ],
         [
-            InlineKeyboardButton("Назад", callback_data=str(C_Q_3))
+            InlineKeyboardButton("Вечер", callback_data=str(C_Q_4_3))
+        ],
+        [
+            InlineKeyboardButton("Ночь", callback_data=str(C_Q_4_4))
+        ],
+        [
+            InlineKeyboardButton("Назад", callback_data=str(dict_metod[dict_query[num]]))
+        ],
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await query.edit_message_text(
+        text="В какое время суток беспокоят колики?", reply_markup=reply_markup
+    )
+    return FIRST
+
+
+async def colic_q_3_3(update, _):
+    num = question_number(update.callback_query.data)
+    num = int(num)
+    print(dict_metod[dict_query[num]])
+    """Показ нового выбора кнопок"""
+    dict_mongo["В течение какого времени Вашего ребенка беспокоят колики?"] = "Более 2-х недель"
+    query = update.callback_query
+    await query.answer()
+    keyboard = [
+        [
+            InlineKeyboardButton("Утро", callback_data=str(C_Q_4_1))
+        ],
+        [
+            InlineKeyboardButton("День", callback_data=str(C_Q_4_2))
+        ],
+        [
+            InlineKeyboardButton("Вечер", callback_data=str(C_Q_4_3))
+        ],
+        [
+            InlineKeyboardButton("Ночь", callback_data=str(C_Q_4_4))
+        ],
+        [
+            InlineKeyboardButton("Назад", callback_data=str(dict_metod[dict_query[num]]))
+        ],
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await query.edit_message_text(
+        text="В какое время суток беспокоят колики?", reply_markup=reply_markup
+    )
+    return FIRST
+
+
+async def colic_q_4_1(update, _):
+    """Показ нового выбора кнопок"""
+    num = question_number(update.callback_query.data)
+    num = int(num)
+    dict_mongo["В какое время суток беспокоят колики?"] = "Утро"
+    query = update.callback_query
+    await query.answer()
+    keyboard = [
+        [
+            InlineKeyboardButton("Да", callback_data=str(C_Q_5_1))
+        ],
+        [
+            InlineKeyboardButton("Нет", callback_data=str(C_Q_5_2))
+        ],
+        [
+            InlineKeyboardButton("Назад", callback_data=str(dict_metod[dict_query[num]]))
         ],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -263,19 +412,97 @@ async def colic_q_4(update, _):
     return FIRST
 
 
-async def colic_q_5(update, _):
+async def colic_q_4_2(update, _):
+    num = question_number(update.callback_query.data)
+    num = int(num)
     """Показ нового выбора кнопок"""
+    dict_mongo["В какое время суток беспокоят колики?"] = "День"
     query = update.callback_query
     await query.answer()
     keyboard = [
         [
-            InlineKeyboardButton("Да", callback_data=str(C_Q_6))
+            InlineKeyboardButton("Да", callback_data=str(C_Q_5_1))
         ],
         [
-            InlineKeyboardButton("Нет", callback_data=str(C_Q_6))
+            InlineKeyboardButton("Нет", callback_data=str(C_Q_5_2))
         ],
         [
-            InlineKeyboardButton("Назад", callback_data=str(C_Q_4))
+            InlineKeyboardButton("Назад", callback_data=str(dict_metod[dict_query[num]]))
+        ],
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await query.edit_message_text(
+        text="Есть ли связь возникновения колик с приемом пищи?", reply_markup=reply_markup
+    )
+    return FIRST
+
+
+async def colic_q_4_3(update, _):
+    num = question_number(update.callback_query.data)
+    num = int(num)
+    """Показ нового выбора кнопок"""
+    dict_mongo["В какое время суток беспокоят колики?"] = "Вечер"
+    query = update.callback_query
+    await query.answer()
+    keyboard = [
+        [
+            InlineKeyboardButton("Да", callback_data=str(C_Q_5_1))
+        ],
+        [
+            InlineKeyboardButton("Нет", callback_data=str(C_Q_5_2))
+        ],
+        [
+            InlineKeyboardButton("Назад", callback_data=str(dict_metod[dict_query[num]]))
+        ],
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await query.edit_message_text(
+        text="Есть ли связь возникновения колик с приемом пищи?", reply_markup=reply_markup
+    )
+    return FIRST
+
+
+async def colic_q_4_4(update, _):
+    num = question_number(update.callback_query.data)
+    num = int(num)
+    """Показ нового выбора кнопок"""
+    dict_mongo["В какое время суток беспокоят колики?"] = "Ночь"
+    query = update.callback_query
+    await query.answer()
+    keyboard = [
+        [
+            InlineKeyboardButton("Да", callback_data=str(C_Q_5_1))
+        ],
+        [
+            InlineKeyboardButton("Нет", callback_data=str(C_Q_5_2))
+        ],
+        [
+            InlineKeyboardButton("Назад", callback_data=str(dict_metod[dict_query[num]]))
+        ],
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await query.edit_message_text(
+        text="Есть ли связь возникновения колик с приемом пищи?", reply_markup=reply_markup
+    )
+    return FIRST
+
+
+async def colic_q_5_1(update, _):
+    num = question_number(update.callback_query.data)
+    num = int(num)
+    """Показ нового выбора кнопок"""
+    dict_mongo["Есть ли связь возникновения колик с приемом пищи?"] = "Да"
+    query = update.callback_query
+    await query.answer()
+    keyboard = [
+        [
+            InlineKeyboardButton("Да", callback_data=str(C_Q_6_1))
+        ],
+        [
+            InlineKeyboardButton("Нет", callback_data=str(C_Q_6_2))
+        ],
+        [
+            InlineKeyboardButton("Назад", callback_data=str(dict_metod[dict_query[num]]))
         ],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -285,19 +512,47 @@ async def colic_q_5(update, _):
     return FIRST
 
 
-async def colic_q_6(update, _):
+async def colic_q_5_2(update, _):
+    num = question_number(update.callback_query.data)
+    num = int(num)
     """Показ нового выбора кнопок"""
+    dict_mongo["Есть ли связь возникновения колик с приемом пищи?"] = "Нет"
     query = update.callback_query
     await query.answer()
     keyboard = [
         [
-            InlineKeyboardButton("Более 3-х часов в день", callback_data=str(C_Q_7))
+            InlineKeyboardButton("Да", callback_data=str(C_Q_6_1))
         ],
         [
-            InlineKeyboardButton("Менее 3-х часов в день", callback_data=str(C_Q_7))
+            InlineKeyboardButton("Нет", callback_data=str(C_Q_6_2))
         ],
         [
-            InlineKeyboardButton("Назад", callback_data=str(C_Q_5))
+            InlineKeyboardButton("Назад", callback_data=str(dict_metod[dict_query[num]]))
+        ],
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await query.edit_message_text(
+        text="Проходят ли колики после стула?", reply_markup=reply_markup
+    )
+    return FIRST
+
+
+async def colic_q_6_1(update, _):
+    num = question_number(update.callback_query.data)
+    num = int(num)
+    """Показ нового выбора кнопок"""
+    dict_mongo["Проходят ли колики после стула?"] = "Да"
+    query = update.callback_query
+    await query.answer()
+    keyboard = [
+        [
+            InlineKeyboardButton("Более 3-х часов в день", callback_data=str(C_Q_7_1))
+        ],
+        [
+            InlineKeyboardButton("Менее 3-х часов в день", callback_data=str(C_Q_7_2))
+        ],
+        [
+            InlineKeyboardButton("Назад", callback_data=str(dict_metod[dict_query[num]]))
         ],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -307,8 +562,36 @@ async def colic_q_6(update, _):
     return FIRST
 
 
-async def colic_q_7(update, _):
+async def colic_q_6_2(update, _):
+    num = question_number(update.callback_query.data)
+    num = int(num)
     """Показ нового выбора кнопок"""
+    dict_mongo["Проходят ли колики после стула?"] = "Нет"
+    query = update.callback_query
+    await query.answer()
+    keyboard = [
+        [
+            InlineKeyboardButton("Более 3-х часов в день", callback_data=str(C_Q_7_1))
+        ],
+        [
+            InlineKeyboardButton("Менее 3-х часов в день", callback_data=str(C_Q_7_2))
+        ],
+        [
+            InlineKeyboardButton("Назад", callback_data=str(dict_metod[dict_query[num]]))
+        ],
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await query.edit_message_text(
+        text="Продолжительность одного эпизода колик?", reply_markup=reply_markup
+    )
+    return FIRST
+
+
+async def colic_q_7_1(update, _):
+    num = question_number(update.callback_query.data)
+    num = int(num)
+    """Показ нового выбора кнопок"""
+    dict_mongo["Продолжительность одного эпизода колик?"] = "Более 3-х часов в день"
     query = update.callback_query
     await query.answer()
     keyboard = [
@@ -319,7 +602,32 @@ async def colic_q_7(update, _):
             InlineKeyboardButton("На искусственном или смешанном", callback_data=str(C_Q_8_2))
         ],
         [
-            InlineKeyboardButton("Назад", callback_data=str(C_Q_6))
+            InlineKeyboardButton("Назад", callback_data=str(dict_metod[dict_query[num]]))
+        ],
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await query.edit_message_text(
+        text="На каком вскармливании Ваш ребенок?", reply_markup=reply_markup
+    )
+    return FIRST
+
+
+async def colic_q_7_2(update, _):
+    num = question_number(update.callback_query.data)
+    num = int(num)
+    """Показ нового выбора кнопок"""
+    dict_mongo["Продолжительность одного эпизода колик?"] = "Менее 3-х часов в день"
+    query = update.callback_query
+    await query.answer()
+    keyboard = [
+        [
+            InlineKeyboardButton("На грудном", callback_data=str(C_Q_8_1))
+        ],
+        [
+            InlineKeyboardButton("На искусственном или смешанном", callback_data=str(C_Q_8_2))
+        ],
+        [
+            InlineKeyboardButton("Назад", callback_data=str(dict_metod[dict_query[num]]))
         ],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -330,7 +638,10 @@ async def colic_q_7(update, _):
 
 
 async def colic_q_8_1(update, _):
+    num = question_number(update.callback_query.data)
+    num = int(num)
     """Показ нового выбора кнопок"""
+    dict_mongo["На каком вскармливании Ваш ребенок?"] = "На грудном"
     query = update.callback_query
     await query.answer()
     keyboard = [
@@ -341,21 +652,24 @@ async def colic_q_8_1(update, _):
             InlineKeyboardButton("Нет", callback_data=str(C_E_2))
         ],
         [
-            InlineKeyboardButton("Назад", callback_data=str(C_Q_7))
+            InlineKeyboardButton("Назад", callback_data=str(dict_metod[dict_query[num]]))
         ],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await query.edit_message_text(
-        text="Есть ли у Вашего ребенка одна или несколько из перечисленных жалоб:\n"
-             "Упорный крик с изменением тональности, повторные рвоты, рвота с кровью, "
-             "кровь в стуле, потеря массы тела, задержка роста, лихорадка (повышение температуры)? ",
+        text="Есть ли у Вашего ребенка одна или несколько из перечисленных жалоб-\n"
+             "Упорный крик с изменением тональности; повторные рвоты; рвота с кровью; "
+             "кровь в стуле; потеря массы тела; задержка роста; лихорадка (повышение температуры)? ",
         reply_markup=reply_markup
     )
     return FIRST
 
 
 async def colic_q_8_2(update, _):
+    num = question_number(update.callback_query.data)
+    num = int(num)
     """Показ нового выбора кнопок"""
+    dict_mongo["На каком вскармливании Ваш ребенок?"] = "На искусственном или смешанном"
     query = update.callback_query
     await query.answer()
     keyboard = [
@@ -366,24 +680,26 @@ async def colic_q_8_2(update, _):
             InlineKeyboardButton("Нет", callback_data=str(C_E_3))
         ],
         [
-            InlineKeyboardButton("Назад", callback_data=str(C_Q_7))
+            InlineKeyboardButton("Назад", callback_data=str(dict_metod[dict_query[num]]))
         ],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await query.edit_message_text(
-        text="Есть ли у Вашего ребенка одна или несколько из перечисленных жалоб:\n"
-             "Упорный крик с изменением тональности, повторные рвоты, рвота с кровью, "
-             "кровь в стуле, потеря массы тела, задержка роста, лихорадка (повышение температуры)? ",
+        text="Есть ли у Вашего ребенка одна или несколько из перечисленных жалоб-\n"
+             "Упорный крик с изменением тональности; повторные рвоты; рвота с кровью; "
+             "кровь в стуле; потеря массы тела; задержка роста; лихорадка (повышение температуры)? ",
         reply_markup=reply_markup
     )
     return FIRST
 
 
 async def colic_end_1(update, _):
+    dict_mongo[
+        "Есть ли у Вашего ребенка одна или несколько из перечисленных жалоб- Упорный крик с изменением тональности; повторные рвоты; рвота с кровью; кровь в стуле; потеря массы тела; задержка роста; лихорадка (повышение температуры)?"] = "Да"
     query = update.callback_query
     await query.answer()
     global recommendations
-    recommendations += "Срочно обратиться к врачу педиатру"
+    recommendations += "<b>Срочно обратиться к врачу-педиатру</b>"
     keyboard = [
         [
             InlineKeyboardButton("Вашего ребенка беспокоит что-то еще?", callback_data=str(START_OVER))
@@ -394,7 +710,7 @@ async def colic_end_1(update, _):
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await query.edit_message_text(
-        text="<b>Срочно обратиться к врачу педиатру</b>",
+        text="<b>Срочно обратиться к врачу-педиатру</b>",
         parse_mode='HTML',
         reply_markup=reply_markup
     )
@@ -402,10 +718,12 @@ async def colic_end_1(update, _):
 
 
 async def colic_end_2(update, _):
+    dict_mongo[
+        "Есть ли у Вашего ребенка одна или несколько из перечисленных жалоб- Упорный крик с изменением тональности; повторные рвоты; рвота с кровью; кровь в стуле; потеря массы тела; задержка роста; лихорадка (повышение температуры)?"] = "Нет"
     query = update.callback_query
     await query.answer()
     global recommendations
-    recommendations += "Обратиться к врачу педиатру\n" \
+    recommendations += "\n<b>Обратиться к врачу-педиатру</b>\n" \
                        "Рекомендуется кормящей маме исключить из питания продукты, " \
                        "повышающие газообразование в кишечнике:\n" \
                        "сахар, кондитерские изделия, виноград, мясные " \
@@ -424,7 +742,7 @@ async def colic_end_2(update, _):
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await query.edit_message_text(
-        text="<b>Обратиться к врачу педиатру</b>\n"
+        text="<b>Обратиться к врачу-педиатру</b>\n"
              "Рекомендуется кормящей маме исключить из питания продукты, повышающие газообразование в кишечнике:\n"
              "сахар, кондитерские изделия, виноград, мясные бульоны, консервы, колбасы, цельное молоко заменить "
              "на кисломолочные продукты;\n"
@@ -438,10 +756,12 @@ async def colic_end_2(update, _):
 
 
 async def colic_end_3(update, _):
+    dict_mongo[
+        "Есть ли у Вашего ребенка одна или несколько из перечисленных жалоб- Упорный крик с изменением тональности; повторные рвоты; рвота с кровью; кровь в стуле; потеря массы тела; задержка роста; лихорадка (повышение температуры)?"] = "Нет"
     query = update.callback_query
     await query.answer()
     global recommendations
-    recommendations += "\n<b>Обратиться к врачу педиатру</b> для коррекции режима питания смеси;\n" \
+    recommendations += "\n<b>Обратиться к врачу-педиатру</b> для коррекции режима питания смеси;\n" \
                        "Рекомендуется ребенку:\n" \
                        "сухое тепло на живот (теплая пеленка или грелка), поглаживание живота по часовой " \
                        "стрелке и выкладывание на живот перед кормлением.\n"
@@ -455,7 +775,7 @@ async def colic_end_3(update, _):
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await query.edit_message_text(
-        text="<b>Обратиться к врачу педиатру</b> для коррекции режима питания смеси;\n"
+        text="<b>Обратиться к врачу-педиатру</b> для коррекции режима питания смеси;\n"
              "Рекомендуется ребенку:\n"
              "сухое тепло на живот (теплая пеленка или грелка), поглаживание живота по часовой "
              "стрелке и выкладывание на живот перед кормлением.",
@@ -472,16 +792,16 @@ async def stool_q_1(update, _):
     await query.answer()
     keyboard = [
         [
-            InlineKeyboardButton("Больше 3-х раз в день", callback_data=str(S_Q_2))
+            InlineKeyboardButton("Больше 3-х раз в день", callback_data=str(S_Q_2_1))
         ],
         [
-            InlineKeyboardButton("2-3 раза в день", callback_data=str(S_Q_2))
+            InlineKeyboardButton("2-3 раза в день", callback_data=str(S_Q_2_2))
         ],
         [
-            InlineKeyboardButton("1 раз в день", callback_data=str(S_Q_2))
+            InlineKeyboardButton("1 раз в день", callback_data=str(S_Q_2_3))
         ],
         [
-            InlineKeyboardButton("2 раза в неделю и реже", callback_data=str(S_Q_2))
+            InlineKeyboardButton("2 раза в неделю и реже", callback_data=str(S_Q_2_4))
         ],
         [
             InlineKeyboardButton("Назад", callback_data=str(START_OVER))
@@ -494,8 +814,10 @@ async def stool_q_1(update, _):
     return FIRST
 
 
-async def stool_q_2(update, _):
+async def stool_q_2_1(update, _):
     """Показ выбора кнопок"""
+    dict_mongo[
+        "За прошедший месяц в среднем сколько дефекаций в неделю было у Вашего ребенка?"] = "Больше 3-х раз в день"
     query = update.callback_query
     await query.answer()
     keyboard = [
@@ -511,9 +833,93 @@ async def stool_q_2(update, _):
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await query.edit_message_text(
-        text="Есть ли у Вашего ребенка одна или несколько из перечисленных жалоб: сухость "
-             "кожи и слизистых, редкое мочеиспускание, язык обложен белым налетом, слабость "
-             "и сонливость, западение родничка?",
+        text="Есть ли у Вашего ребенка одна или несколько из перечисленных жалоб- сухость "
+             "кожи и слизистых; редкое мочеиспускание; язык обложен белым налетом; слабость "
+             "и сонливость; западение родничка?",
+        reply_markup=reply_markup
+    )
+    # Переход в состояние разговора `SECOND`
+    return FIRST
+
+
+async def stool_q_2_2(update, _):
+    """Показ выбора кнопок"""
+    dict_mongo[
+        "За прошедший месяц в среднем сколько дефекаций в неделю было у Вашего ребенка?"] = "2-3 раза в день"
+    query = update.callback_query
+    await query.answer()
+    keyboard = [
+        [
+            InlineKeyboardButton("Да", callback_data=str(S_Q_3_1))
+        ],
+        [
+            InlineKeyboardButton("Нет", callback_data=str(S_Q_3_2))
+        ],
+        [
+            InlineKeyboardButton("Назад", callback_data=str(S_Q_1))
+        ],
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await query.edit_message_text(
+        text="Есть ли у Вашего ребенка одна или несколько из перечисленных жалоб- сухость "
+             "кожи и слизистых; редкое мочеиспускание; язык обложен белым налетом; слабость "
+             "и сонливость; западение родничка?",
+        reply_markup=reply_markup
+    )
+    # Переход в состояние разговора `SECOND`
+    return FIRST
+
+
+async def stool_q_2_3(update, _):
+    """Показ выбора кнопок"""
+    dict_mongo[
+        "За прошедший месяц в среднем сколько дефекаций в неделю было у Вашего ребенка?"] = "1 раз в день"
+    query = update.callback_query
+    await query.answer()
+    keyboard = [
+        [
+            InlineKeyboardButton("Да", callback_data=str(S_Q_3_1))
+        ],
+        [
+            InlineKeyboardButton("Нет", callback_data=str(S_Q_3_2))
+        ],
+        [
+            InlineKeyboardButton("Назад", callback_data=str(S_Q_1))
+        ],
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await query.edit_message_text(
+        text="Есть ли у Вашего ребенка одна или несколько из перечисленных жалоб- сухость "
+             "кожи и слизистых; редкое мочеиспускание; язык обложен белым налетом; слабость "
+             "и сонливость; западение родничка?",
+        reply_markup=reply_markup
+    )
+    # Переход в состояние разговора `SECOND`
+    return FIRST
+
+
+async def stool_q_2_4(update, _):
+    """Показ выбора кнопок"""
+    dict_mongo[
+        "За прошедший месяц в среднем сколько дефекаций в неделю было у Вашего ребенка?"] = "2 раза в неделю и реже"
+    query = update.callback_query
+    await query.answer()
+    keyboard = [
+        [
+            InlineKeyboardButton("Да", callback_data=str(S_Q_3_1))
+        ],
+        [
+            InlineKeyboardButton("Нет", callback_data=str(S_Q_3_2))
+        ],
+        [
+            InlineKeyboardButton("Назад", callback_data=str(S_Q_1))
+        ],
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await query.edit_message_text(
+        text="Есть ли у Вашего ребенка одна или несколько из перечисленных жалоб- сухость "
+             "кожи и слизистых; редкое мочеиспускание; язык обложен белым налетом; слабость "
+             "и сонливость; западение родничка?",
         reply_markup=reply_markup
     )
     # Переход в состояние разговора `SECOND`
@@ -522,6 +928,8 @@ async def stool_q_2(update, _):
 
 async def stool_q_3_1(update, _):
     """Показ выбора кнопок"""
+    dict_mongo[
+        "Есть ли у Вашего ребенка одна или несколько из перечисленных жалоб- сухость кожи и слизистых; редкое мочеиспускание; язык обложен белым налетом; слабость и сонливость; западение родничка?"] = "Да"
     query = update.callback_query
     await query.answer()
     keyboard = [
@@ -532,7 +940,7 @@ async def stool_q_3_1(update, _):
             InlineKeyboardButton("На искусственном или смешанном", callback_data=str(S_Q_4_2))
         ],
         [
-            InlineKeyboardButton("Назад", callback_data=str(S_Q_2))
+            InlineKeyboardButton("Назад", callback_data=str(S_Q_2_1))
         ],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -546,6 +954,8 @@ async def stool_q_3_1(update, _):
 
 async def stool_q_3_2(update, _):
     """Показ выбора кнопок"""
+    dict_mongo[
+        "Есть ли у Вашего ребенка одна или несколько из перечисленных жалоб- сухость кожи и слизистых; редкое мочеиспускание; язык обложен белым налетом; слабость и сонливость; западение родничка?"] = "Нет"
     query = update.callback_query
     await query.answer()
     keyboard = [
@@ -556,7 +966,7 @@ async def stool_q_3_2(update, _):
             InlineKeyboardButton("На искусственном или смешанном", callback_data=str(S_Q_4_4))
         ],
         [
-            InlineKeyboardButton("Назад", callback_data=str(S_Q_2))
+            InlineKeyboardButton("Назад", callback_data=str(S_Q_2_1))
         ],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -570,14 +980,16 @@ async def stool_q_3_2(update, _):
 
 async def stool_q_4_1(update, _):
     """Показ выбора кнопок"""
+    dict_mongo[
+        "На каком вскармливании Ваш ребенок?"] = "На грудном"
     query = update.callback_query
     await query.answer()
     keyboard = [
         [
-            InlineKeyboardButton("Да", callback_data=str(S_Q_5_1))
+            InlineKeyboardButton("Да", callback_data=str(S_Q_5_1_1))
         ],
         [
-            InlineKeyboardButton("Нет", callback_data=str(S_Q_5_1))
+            InlineKeyboardButton("Нет", callback_data=str(S_Q_5_1_2))
         ],
         [
             InlineKeyboardButton("Назад", callback_data=str(S_Q_3_1))
@@ -594,14 +1006,16 @@ async def stool_q_4_1(update, _):
 
 async def stool_q_4_2(update, _):
     """Показ выбора кнопок"""
+    dict_mongo[
+        "На каком вскармливании Ваш ребенок?"] = "На искусственном или смешанном"
     query = update.callback_query
     await query.answer()
     keyboard = [
         [
-            InlineKeyboardButton("Да", callback_data=str(S_Q_5_2))
+            InlineKeyboardButton("Да", callback_data=str(S_Q_5_2_1))
         ],
         [
-            InlineKeyboardButton("Нет", callback_data=str(S_Q_5_2))
+            InlineKeyboardButton("Нет", callback_data=str(S_Q_5_2_2))
         ],
         [
             InlineKeyboardButton("Назад", callback_data=str(S_Q_3_1))
@@ -618,14 +1032,16 @@ async def stool_q_4_2(update, _):
 
 async def stool_q_4_3(update, _):
     """Показ выбора кнопок"""
+    dict_mongo[
+        "На каком вскармливании Ваш ребенок?"] = "На грудном"
     query = update.callback_query
     await query.answer()
     keyboard = [
         [
-            InlineKeyboardButton("Да", callback_data=str(S_Q_5_3))
+            InlineKeyboardButton("Да", callback_data=str(S_Q_5_3_1))
         ],
         [
-            InlineKeyboardButton("Нет", callback_data=str(S_Q_5_3))
+            InlineKeyboardButton("Нет", callback_data=str(S_Q_5_3_2))
         ],
         [
             InlineKeyboardButton("Назад", callback_data=str(S_Q_3_2))
@@ -642,14 +1058,16 @@ async def stool_q_4_3(update, _):
 
 async def stool_q_4_4(update, _):
     """Показ выбора кнопок"""
+    dict_mongo[
+        "На каком вскармливании Ваш ребенок?"] = "На искусственном или смешанном"
     query = update.callback_query
     await query.answer()
     keyboard = [
         [
-            InlineKeyboardButton("Да", callback_data=str(S_Q_5_4))
+            InlineKeyboardButton("Да", callback_data=str(S_Q_5_4_1))
         ],
         [
-            InlineKeyboardButton("Нет", callback_data=str(S_Q_5_4))
+            InlineKeyboardButton("Нет", callback_data=str(S_Q_5_4_2))
         ],
         [
             InlineKeyboardButton("Назад", callback_data=str(S_Q_3_2))
@@ -664,22 +1082,24 @@ async def stool_q_4_4(update, _):
     return FIRST
 
 
-async def stool_q_5_1(update, _):
+async def stool_q_5_1_1(update, _):
     """Показ выбора кнопок"""
+    dict_mongo[
+        "В течение последнего месяца Ваш ребенок сильно тужился во время дефекации?"] = "Да"
     query = update.callback_query
     await query.answer()
     keyboard = [
         [
-            InlineKeyboardButton("Жидкий стул", callback_data=str(S_E_1))
+            InlineKeyboardButton("Жидкий стул", callback_data=str(S_E_1_1))
         ],
         [
-            InlineKeyboardButton("Лентовидный стул", callback_data=str(S_E_1))
+            InlineKeyboardButton("Лентовидный стул", callback_data=str(S_E_1_2))
         ],
         [
-            InlineKeyboardButton("Кашицеобразный стул", callback_data=str(S_E_2))
+            InlineKeyboardButton("Кашицеобразный стул", callback_data=str(S_E_2_1))
         ],
         [
-            InlineKeyboardButton("Плотный стул", callback_data=str(S_E_2))
+            InlineKeyboardButton("Плотный стул", callback_data=str(S_E_2_2))
         ],
         [
             InlineKeyboardButton("Назад", callback_data=str(S_Q_4_1))
@@ -693,22 +1113,55 @@ async def stool_q_5_1(update, _):
     return FIRST
 
 
-async def stool_q_5_2(update, _):
+async def stool_q_5_1_2(update, _):
     """Показ выбора кнопок"""
+    dict_mongo[
+        "В течение последнего месяца Ваш ребенок сильно тужился во время дефекации?"] = "Нет"
     query = update.callback_query
     await query.answer()
     keyboard = [
         [
-            InlineKeyboardButton("Жидкий стул", callback_data=str(S_E_1))
+            InlineKeyboardButton("Жидкий стул", callback_data=str(S_E_1_1))
         ],
         [
-            InlineKeyboardButton("Лентовидный стул", callback_data=str(S_E_1))
+            InlineKeyboardButton("Лентовидный стул", callback_data=str(S_E_1_2))
         ],
         [
-            InlineKeyboardButton("Кашицеобразный стул", callback_data=str(S_E_3))
+            InlineKeyboardButton("Кашицеобразный стул", callback_data=str(S_E_2_1))
         ],
         [
-            InlineKeyboardButton("Плотный стул", callback_data=str(S_E_3))
+            InlineKeyboardButton("Плотный стул", callback_data=str(S_E_2_2))
+        ],
+        [
+            InlineKeyboardButton("Назад", callback_data=str(S_Q_4_1))
+        ],
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await query.edit_message_text(
+        text="Какой консистенции был стул у Ваш ребенок за прошедший месяц?",
+        reply_markup=reply_markup
+    )
+    return FIRST
+
+
+async def stool_q_5_2_1(update, _):
+    """Показ выбора кнопок"""
+    dict_mongo[
+        "В течение последнего месяца Ваш ребенок сильно тужился во время дефекации?"] = "Да"
+    query = update.callback_query
+    await query.answer()
+    keyboard = [
+        [
+            InlineKeyboardButton("Жидкий стул", callback_data=str(S_E_1_1))
+        ],
+        [
+            InlineKeyboardButton("Лентовидный стул", callback_data=str(S_E_1_2))
+        ],
+        [
+            InlineKeyboardButton("Кашицеобразный стул", callback_data=str(S_E_3_1))
+        ],
+        [
+            InlineKeyboardButton("Плотный стул", callback_data=str(S_E_3_2))
         ],
         [
             InlineKeyboardButton("Назад", callback_data=str(S_Q_4_2))
@@ -722,22 +1175,55 @@ async def stool_q_5_2(update, _):
     return FIRST
 
 
-async def stool_q_5_3(update, _):
+async def stool_q_5_2_2(update, _):
     """Показ выбора кнопок"""
+    dict_mongo[
+        "В течение последнего месяца Ваш ребенок сильно тужился во время дефекации?"] = "Нет"
     query = update.callback_query
     await query.answer()
     keyboard = [
         [
-            InlineKeyboardButton("Жидкий стул", callback_data=str(S_E_1))
+            InlineKeyboardButton("Жидкий стул", callback_data=str(S_E_1_1))
         ],
         [
-            InlineKeyboardButton("Лентовидный стул", callback_data=str(S_E_1))
+            InlineKeyboardButton("Лентовидный стул", callback_data=str(S_E_1_2))
         ],
         [
-            InlineKeyboardButton("Кашицеобразный стул", callback_data=str(S_E_2))
+            InlineKeyboardButton("Кашицеобразный стул", callback_data=str(S_E_3_1))
         ],
         [
-            InlineKeyboardButton("Плотный стул", callback_data=str(S_E_2))
+            InlineKeyboardButton("Плотный стул", callback_data=str(S_E_3_2))
+        ],
+        [
+            InlineKeyboardButton("Назад", callback_data=str(S_Q_4_2))
+        ],
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await query.edit_message_text(
+        text="Какой консистенции был стул у Ваш ребенок за прошедший месяц?",
+        reply_markup=reply_markup
+    )
+    return FIRST
+
+
+async def stool_q_5_3_1(update, _):
+    """Показ выбора кнопок"""
+    dict_mongo[
+        "В течение последнего месяца Ваш ребенок сильно тужился во время дефекации?"] = "Да"
+    query = update.callback_query
+    await query.answer()
+    keyboard = [
+        [
+            InlineKeyboardButton("Жидкий стул", callback_data=str(S_E_1_1))
+        ],
+        [
+            InlineKeyboardButton("Лентовидный стул", callback_data=str(S_E_1_2))
+        ],
+        [
+            InlineKeyboardButton("Кашицеобразный стул", callback_data=str(S_E_2_1))
+        ],
+        [
+            InlineKeyboardButton("Плотный стул", callback_data=str(S_E_2_2))
         ],
         [
             InlineKeyboardButton("Назад", callback_data=str(S_Q_4_3))
@@ -751,22 +1237,55 @@ async def stool_q_5_3(update, _):
     return FIRST
 
 
-async def stool_q_5_4(update, _):
+async def stool_q_5_3_2(update, _):
     """Показ выбора кнопок"""
+    dict_mongo[
+        "В течение последнего месяца Ваш ребенок сильно тужился во время дефекации?"] = "Нет"
     query = update.callback_query
     await query.answer()
     keyboard = [
         [
-            InlineKeyboardButton("Жидкий стул", callback_data=str(S_E_1))
+            InlineKeyboardButton("Жидкий стул", callback_data=str(S_E_1_1))
         ],
         [
-            InlineKeyboardButton("Лентовидный стул", callback_data=str(S_E_1))
+            InlineKeyboardButton("Лентовидный стул", callback_data=str(S_E_1_2))
         ],
         [
-            InlineKeyboardButton("Кашицеобразный стул", callback_data=str(S_E_3))
+            InlineKeyboardButton("Кашицеобразный стул", callback_data=str(S_E_2_1))
         ],
         [
-            InlineKeyboardButton("Плотный стул", callback_data=str(S_E_3))
+            InlineKeyboardButton("Плотный стул", callback_data=str(S_E_2_2))
+        ],
+        [
+            InlineKeyboardButton("Назад", callback_data=str(S_Q_4_3))
+        ],
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await query.edit_message_text(
+        text="Какой консистенции был стул у Ваш ребенок за прошедший месяц?",
+        reply_markup=reply_markup
+    )
+    return FIRST
+
+
+async def stool_q_5_4_1(update, _):
+    """Показ выбора кнопок"""
+    dict_mongo[
+        "В течение последнего месяца Ваш ребенок сильно тужился во время дефекации?"] = "Да"
+    query = update.callback_query
+    await query.answer()
+    keyboard = [
+        [
+            InlineKeyboardButton("Жидкий стул", callback_data=str(S_E_1_1))
+        ],
+        [
+            InlineKeyboardButton("Лентовидный стул", callback_data=str(S_E_1_2))
+        ],
+        [
+            InlineKeyboardButton("Кашицеобразный стул", callback_data=str(S_E_3_1))
+        ],
+        [
+            InlineKeyboardButton("Плотный стул", callback_data=str(S_E_3_2))
         ],
         [
             InlineKeyboardButton("Назад", callback_data=str(S_Q_4_4))
@@ -780,7 +1299,40 @@ async def stool_q_5_4(update, _):
     return FIRST
 
 
-async def stool_end_1(update, _):
+async def stool_q_5_4_2(update, _):
+    """Показ выбора кнопок"""
+    dict_mongo[
+        "В течение последнего месяца Ваш ребенок сильно тужился во время дефекации?"] = "Нет"
+    query = update.callback_query
+    await query.answer()
+    keyboard = [
+        [
+            InlineKeyboardButton("Жидкий стул", callback_data=str(S_E_1_1))
+        ],
+        [
+            InlineKeyboardButton("Лентовидный стул", callback_data=str(S_E_1_2))
+        ],
+        [
+            InlineKeyboardButton("Кашицеобразный стул", callback_data=str(S_E_3_1))
+        ],
+        [
+            InlineKeyboardButton("Плотный стул", callback_data=str(S_E_3_2))
+        ],
+        [
+            InlineKeyboardButton("Назад", callback_data=str(S_Q_4_4))
+        ],
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await query.edit_message_text(
+        text="Какой консистенции был стул у Ваш ребенок за прошедший месяц?",
+        reply_markup=reply_markup
+    )
+    return FIRST
+
+
+async def stool_end_1_1(update, _):
+    dict_mongo[
+        "Какой консистенции был стул у Ваш ребенок за прошедший месяц?"] = "Жидкий стул"
     query = update.callback_query
     await query.answer()
     global recommendations
@@ -802,7 +1354,33 @@ async def stool_end_1(update, _):
     return SECOND
 
 
-async def stool_end_2(update, _):
+async def stool_end_1_2(update, _):
+    dict_mongo[
+        "Какой консистенции был стул у Ваш ребенок за прошедший месяц?"] = "Лентовидный стул"
+    query = update.callback_query
+    await query.answer()
+    global recommendations
+    recommendations += "Срочно обратиться к врачу педиатру\n"
+    keyboard = [
+        [
+            InlineKeyboardButton("Вашего ребенка беспокоит что-то еще?", callback_data=str(START_OVER))
+        ],
+        [
+            InlineKeyboardButton("Отправить Ваши данные врачу педиатру", callback_data=str(END))
+        ],
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await query.edit_message_text(
+        text="<b>Срочно обратиться к врачу педиатру</b>",
+        parse_mode='HTML',
+        reply_markup=reply_markup
+    )
+    return SECOND
+
+
+async def stool_end_2_1(update, _):
+    dict_mongo[
+        "Какой консистенции был стул у Ваш ребенок за прошедший месяц?"] = "Кашицеобразный стул"
     query = update.callback_query
     await query.answer()
     global recommendations
@@ -832,7 +1410,69 @@ async def stool_end_2(update, _):
     return SECOND
 
 
-async def stool_end_3(update, _):
+async def stool_end_2_2(update, _):
+    dict_mongo[
+        "Какой консистенции был стул у Ваш ребенок за прошедший месяц?"] = "Плотный стул"
+    query = update.callback_query
+    await query.answer()
+    global recommendations
+    recommendations += "\n<b>Обратиться к врачу педиатру</b> для нормализации режима питания;\n" \
+                       "Рекомендовано коррекция пищевого рациона кормящей мамы:\n" \
+                       "увеличить в рационе продукты с высоким содержанием пищевых " \
+                       "волокон (овощи, фрукты), достаточный питьевой режим, кисломолочные продукты;\n" \
+                       "Введение прикорма с 4-х месяцев – овощное пюре.\n"
+    keyboard = [
+        [
+            InlineKeyboardButton("Вашего ребенка беспокоит что-то еще?", callback_data=str(START_OVER))
+        ],
+        [
+            InlineKeyboardButton("Отправить Ваши данные врачу педиатру", callback_data=str(END))
+        ],
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await query.edit_message_text(
+        text="<b>Обратиться к врачу педиатру</b> для нормализации режима питания;\n"
+             "Рекомендовано коррекция пищевого рациона кормящей мамы:\n"
+             "увеличить в рационе продукты с высоким содержанием пищевых "
+             "волокон (овощи, фрукты), достаточный питьевой режим, кисломолочные продукты;\n"
+             "Введение прикорма с 4-х месяцев – овощное пюре.",
+        parse_mode='HTML',
+        reply_markup=reply_markup
+    )
+    return SECOND
+
+
+async def stool_end_3_1(update, _):
+    dict_mongo[
+        "Какой консистенции был стул у Ваш ребенок за прошедший месяц?"] = "Кашицеобразный стул"
+    query = update.callback_query
+    await query.answer()
+    global recommendations
+    recommendations += "\n<b>Обратиться к врачу педиатру</b> для коррекции " \
+                       "пищевого режима питания, питьевого режима питания и выбора оптимальной смеси;\n" \
+                       "Введение прикорма с 4-х месяцев – овощное пюре.\n"
+    keyboard = [
+        [
+            InlineKeyboardButton("Вашего ребенка беспокоит что-то еще?", callback_data=str(START_OVER))
+        ],
+        [
+            InlineKeyboardButton("Отправить Ваши данные врачу педиатру", callback_data=str(END))
+        ],
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await query.edit_message_text(
+        text="<b>Обратиться к врачу педиатру</b> для коррекции "
+             "пищевого режима питания, питьевого режима питания и выбора оптимальной смеси;\n"
+             "Введение прикорма с 4-х месяцев – овощное пюре.",
+        parse_mode='HTML',
+        reply_markup=reply_markup
+    )
+    return SECOND
+
+
+async def stool_end_3_2(update, _):
+    dict_mongo[
+        "Какой консистенции был стул у Ваш ребенок за прошедший месяц?"] = "Плотный стул"
     query = update.callback_query
     await query.answer()
     global recommendations
@@ -860,18 +1500,19 @@ async def stool_end_3(update, _):
 
 async def reg_q_1(update, _):
     """Показ нового выбора кнопок"""
+    print(update.callback_query.data)
     query = update.callback_query
     print(query)
     await query.answer()
     keyboard = [
         [
-            InlineKeyboardButton("Менее 1 недели", callback_data=str(R_Q_2))
+            InlineKeyboardButton("Менее 1 недели", callback_data=str(R_Q_2_1))
         ],
         [
-            InlineKeyboardButton("Менее 2-x недели", callback_data=str(R_Q_2))
+            InlineKeyboardButton("Менее 2-x недели", callback_data=str(R_Q_2_2))
         ],
         [
-            InlineKeyboardButton("Более 2-х недель", callback_data=str(R_Q_2))
+            InlineKeyboardButton("Более 2-х недель", callback_data=str(R_Q_2_3))
         ],
         [
             InlineKeyboardButton("Назад", callback_data=str(START_OVER))
@@ -884,16 +1525,18 @@ async def reg_q_1(update, _):
     return FIRST
 
 
-async def reg_q_2(update, _):
+async def reg_q_2_1(update, _):
     """Показ выбора кнопок"""
+    dict_mongo[
+        "В течение какого времени срыгивания беспокоят Вашего ребенка?"] = "Менее 1 недели"
     query = update.callback_query
     await query.answer()
     keyboard = [
         [
-            InlineKeyboardButton("Объем чайной ложки", callback_data=str(R_Q_3_1))
+            InlineKeyboardButton("Объем чайной ложки", callback_data=str(R_Q_3_1_1))
         ],
         [
-            InlineKeyboardButton("Объем столовой ложки", callback_data=str(R_Q_3_1))
+            InlineKeyboardButton("Объем столовой ложки", callback_data=str(R_Q_3_1_2))
         ],
         [
             InlineKeyboardButton("1/3 или ½ от объема съеденной пищи", callback_data=str(R_Q_3_2))
@@ -909,19 +1552,99 @@ async def reg_q_2(update, _):
     return FIRST
 
 
-async def reg_q_3_1(update, _):
+async def reg_q_2_2(update, _):
     """Показ выбора кнопок"""
+    dict_mongo[
+        "В течение какого времени срыгивания беспокоят Вашего ребенка?"] = "Менее 2-x недели"
     query = update.callback_query
     await query.answer()
     keyboard = [
         [
-            InlineKeyboardButton("Неизменное молоко", callback_data=str(R_Q_4_1))
+            InlineKeyboardButton("Объем чайной ложки", callback_data=str(R_Q_3_1_1))
         ],
         [
-            InlineKeyboardButton("Створоженное молоко", callback_data=str(R_Q_4_1))
+            InlineKeyboardButton("Объем столовой ложки", callback_data=str(R_Q_3_1_2))
         ],
         [
-            InlineKeyboardButton("Назад", callback_data=str(R_Q_2))
+            InlineKeyboardButton("1/3 или ½ от объема съеденной пищи", callback_data=str(R_Q_3_2))
+        ],
+        [
+            InlineKeyboardButton("Назад", callback_data=str(R_Q_1))
+        ],
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await query.edit_message_text(
+        text="Какой объем одного срыгивания?", reply_markup=reply_markup
+    )
+    return FIRST
+
+
+async def reg_q_2_3(update, _):
+    """Показ выбора кнопок"""
+    dict_mongo[
+        "В течение какого времени срыгивания беспокоят Вашего ребенка?"] = "Более 2-х недель"
+    query = update.callback_query
+    await query.answer()
+    keyboard = [
+        [
+            InlineKeyboardButton("Объем чайной ложки", callback_data=str(R_Q_3_1_1))
+        ],
+        [
+            InlineKeyboardButton("Объем столовой ложки", callback_data=str(R_Q_3_1_2))
+        ],
+        [
+            InlineKeyboardButton("1/3 или ½ от объема съеденной пищи", callback_data=str(R_Q_3_2))
+        ],
+        [
+            InlineKeyboardButton("Назад", callback_data=str(R_Q_1))
+        ],
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await query.edit_message_text(
+        text="Какой объем одного срыгивания?", reply_markup=reply_markup
+    )
+    return FIRST
+
+
+async def reg_q_3_1_1(update, _):
+    """Показ выбора кнопок"""
+    dict_mongo[
+        "Какой объем одного срыгивания?"] = "Объем чайной ложки"
+    query = update.callback_query
+    await query.answer()
+    keyboard = [
+        [
+            InlineKeyboardButton("Неизменное молоко", callback_data=str(R_Q_4_1_1))
+        ],
+        [
+            InlineKeyboardButton("Створоженное молоко", callback_data=str(R_Q_4_1_2))
+        ],
+        [
+            InlineKeyboardButton("Назад", callback_data=str(R_Q_2_1))
+        ],
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await query.edit_message_text(
+        text="Какой характер содержимого срыгивания?", reply_markup=reply_markup
+    )
+    return FIRST
+
+
+async def reg_q_3_1_2(update, _):
+    """Показ выбора кнопок"""
+    dict_mongo[
+        "Какой объем одного срыгивания?"] = "Объем столовой ложки"
+    query = update.callback_query
+    await query.answer()
+    keyboard = [
+        [
+            InlineKeyboardButton("Неизменное молоко", callback_data=str(R_Q_4_1_1))
+        ],
+        [
+            InlineKeyboardButton("Створоженное молоко", callback_data=str(R_Q_4_1_2))
+        ],
+        [
+            InlineKeyboardButton("Назад", callback_data=str(R_Q_2_1))
         ],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -933,17 +1656,19 @@ async def reg_q_3_1(update, _):
 
 async def reg_q_3_2(update, _):
     """Показ выбора кнопок"""
+    dict_mongo[
+        "Какой объем одного срыгивания?"] = "1/3 или ½ от объема съеденной пищи"
     query = update.callback_query
     await query.answer()
     keyboard = [
         [
-            InlineKeyboardButton("Неизменное молоко", callback_data=str(R_Q_4_2))
+            InlineKeyboardButton("Неизменное молоко", callback_data=str(R_Q_4_2_1))
         ],
         [
-            InlineKeyboardButton("Створоженное молоко", callback_data=str(R_Q_4_2))
+            InlineKeyboardButton("Створоженное молоко", callback_data=str(R_Q_4_2_2))
         ],
         [
-            InlineKeyboardButton("Назад", callback_data=str(R_Q_2))
+            InlineKeyboardButton("Назад", callback_data=str(R_Q_2_1))
         ],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -953,8 +1678,10 @@ async def reg_q_3_2(update, _):
     return FIRST
 
 
-async def reg_q_4_1(update, _):
+async def reg_q_4_1_1(update, _):
     """Показ выбора кнопок"""
+    dict_mongo[
+        "Какой характер содержимого срыгивания?"] = "Неизменное молоко"
     query = update.callback_query
     await query.answer()
     keyboard = [
@@ -962,30 +1689,57 @@ async def reg_q_4_1(update, _):
             InlineKeyboardButton("Нет", callback_data=str(R_Q_5_1))
         ],
         [
-            InlineKeyboardButton("Да", callback_data=str(R_Q_5_2))
+            InlineKeyboardButton("Да", callback_data=str(R_Q_5_2_2))
         ],
         [
-            InlineKeyboardButton("Назад", callback_data=str(R_Q_3_1))
+            InlineKeyboardButton("Назад", callback_data=str(R_Q_3_1_1))
         ],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await query.edit_message_text(
-        text="Есть ли у Вашего ребенка одна или несколько из перечисленных жалоб: снижение массы тела, рвота фонтаном, рвота с примесью крови или желчи? ",
+        text="Есть ли у Вашего ребенка одна или несколько из перечисленных жалоб- снижение массы тела; рвота фонтаном; рвота с примесью крови или желчи? ",
         reply_markup=reply_markup
     )
     return FIRST
 
 
-async def reg_q_4_2(update, _):
+async def reg_q_4_1_2(update, _):
     """Показ выбора кнопок"""
+    dict_mongo[
+        "Какой характер содержимого срыгивания?"] = "Створоженное молоко"
     query = update.callback_query
     await query.answer()
     keyboard = [
         [
-            InlineKeyboardButton("Нет", callback_data=str(R_Q_5_2))
+            InlineKeyboardButton("Нет", callback_data=str(R_Q_5_1))
         ],
         [
-            InlineKeyboardButton("Да", callback_data=str(R_Q_5_2))
+            InlineKeyboardButton("Да", callback_data=str(R_Q_5_2_2))
+        ],
+        [
+            InlineKeyboardButton("Назад", callback_data=str(R_Q_3_1_1))
+        ],
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await query.edit_message_text(
+        text="Есть ли у Вашего ребенка одна или несколько из перечисленных жалоб- снижение массы тела; рвота фонтаном; рвота с примесью крови или желчи? ",
+        reply_markup=reply_markup
+    )
+    return FIRST
+
+
+async def reg_q_4_2_1(update, _):
+    """Показ выбора кнопок"""
+    dict_mongo[
+        "Какой характер содержимого срыгивания?"] = "Неизменное молоко"
+    query = update.callback_query
+    await query.answer()
+    keyboard = [
+        [
+            InlineKeyboardButton("Нет", callback_data=str(R_Q_5_2_1))
+        ],
+        [
+            InlineKeyboardButton("Да", callback_data=str(R_Q_5_2_2))
         ],
         [
             InlineKeyboardButton("Назад", callback_data=str(R_Q_3_2))
@@ -993,7 +1747,32 @@ async def reg_q_4_2(update, _):
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await query.edit_message_text(
-        text="Есть ли у Вашего ребенка одна или несколько из перечисленных жалоб: снижение массы тела, рвота фонтаном, рвота с примесью крови или желчи? ",
+        text="Есть ли у Вашего ребенка одна или несколько из перечисленных жалоб- снижение массы тела; рвота фонтаном; рвота с примесью крови или желчи? ",
+        reply_markup=reply_markup
+    )
+    return FIRST
+
+
+async def reg_q_4_2_2(update, _):
+    """Показ выбора кнопок"""
+    dict_mongo[
+        "Какой характер содержимого срыгивания?"] = "Створоженное молоко"
+    query = update.callback_query
+    await query.answer()
+    keyboard = [
+        [
+            InlineKeyboardButton("Нет", callback_data=str(R_Q_5_2_1))
+        ],
+        [
+            InlineKeyboardButton("Да", callback_data=str(R_Q_5_2_2))
+        ],
+        [
+            InlineKeyboardButton("Назад", callback_data=str(R_Q_3_2))
+        ],
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await query.edit_message_text(
+        text="Есть ли у Вашего ребенка одна или несколько из перечисленных жалоб- снижение массы тела; рвота фонтаном; рвота с примесью крови или желчи? ",
         reply_markup=reply_markup
     )
     return FIRST
@@ -1001,17 +1780,19 @@ async def reg_q_4_2(update, _):
 
 async def reg_q_5_1(update, _):
     """Показ выбора кнопок"""
+    dict_mongo[
+        "Есть ли у Вашего ребенка одна или несколько из перечисленных жалоб- снижение массы тела; рвота фонтаном; рвота с примесью крови или желчи?"] = "Нет"
     query = update.callback_query
     await query.answer()
     keyboard = [
         [
-            InlineKeyboardButton("Сразу после кормления", callback_data=str(R_Q_6_1))
+            InlineKeyboardButton("Сразу после кормления", callback_data=str(R_Q_6_1_1))
         ],
         [
-            InlineKeyboardButton("Через 1 час после кормления", callback_data=str(R_Q_6_1))
+            InlineKeyboardButton("Через 1 час после кормления", callback_data=str(R_Q_6_1_2))
         ],
         [
-            InlineKeyboardButton("Назад", callback_data=str(R_Q_4_1))
+            InlineKeyboardButton("Назад", callback_data=str(R_Q_4_1_1))
         ],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -1021,19 +1802,20 @@ async def reg_q_5_1(update, _):
     return FIRST
 
 
-async def reg_q_5_2(update, _):
-    """Показ выбора кнопок"""
+async def reg_q_5_2_1(update, _):
+    dict_mongo[
+        "Есть ли у Вашего ребенка одна или несколько из перечисленных жалоб- снижение массы тела; рвота фонтаном; рвота с примесью крови или желчи?"] = "Нет"
     query = update.callback_query
     await query.answer()
     keyboard = [
         [
-            InlineKeyboardButton("Сразу после кормления", callback_data=str(R_Q_6_2))
+            InlineKeyboardButton("Сразу после кормления", callback_data=str(R_Q_6_2_1))
         ],
         [
-            InlineKeyboardButton("Через 1 час после кормления", callback_data=str(R_Q_6_2))
+            InlineKeyboardButton("Через 1 час после кормления", callback_data=str(R_Q_6_2_2))
         ],
         [
-            InlineKeyboardButton("Назад", callback_data=str(R_Q_4_2))
+            InlineKeyboardButton("Назад", callback_data=str(R_Q_4_2_1))
         ],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -1043,8 +1825,33 @@ async def reg_q_5_2(update, _):
     return FIRST
 
 
-async def reg_q_6_1(update, _):
+async def reg_q_5_2_2(update, _):
+    dict_mongo[
+        "Есть ли у Вашего ребенка одна или несколько из перечисленных жалоб- снижение массы тела; рвота фонтаном; рвота с примесью крови или желчи?"] = "Да"
+    query = update.callback_query
+    await query.answer()
+    keyboard = [
+        [
+            InlineKeyboardButton("Сразу после кормления", callback_data=str(R_Q_6_2_1))
+        ],
+        [
+            InlineKeyboardButton("Через 1 час после кормления", callback_data=str(R_Q_6_2_2))
+        ],
+        [
+            InlineKeyboardButton("Назад", callback_data=str(R_Q_4_2_1))
+        ],
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await query.edit_message_text(
+        text="Через какое время после кормления происходит срыгивание?", reply_markup=reply_markup
+    )
+    return FIRST
+
+
+async def reg_q_6_1_1(update, _):
     """Показ выбора кнопок"""
+    dict_mongo[
+        "Через какое время после кормления происходит срыгивание?"] = "Сразу после кормления"
     query = update.callback_query
     await query.answer()
     keyboard = [
@@ -1052,10 +1859,10 @@ async def reg_q_6_1(update, _):
             InlineKeyboardButton("Несколько раз в неделю", callback_data=str(R_E_1))
         ],
         [
-            InlineKeyboardButton("1-2 раза в день", callback_data=str(R_E_2))
+            InlineKeyboardButton("1-2 раза в день", callback_data=str(R_E_2_1))
         ],
         [
-            InlineKeyboardButton("Больше 3-х раз в день или каждое вскармливание", callback_data=str(R_E_2))
+            InlineKeyboardButton("Больше 3-х раз в день или каждое вскармливание", callback_data=str(R_E_2_2))
         ],
         [
             InlineKeyboardButton("Назад", callback_data=str(R_Q_5_1))
@@ -1068,8 +1875,10 @@ async def reg_q_6_1(update, _):
     return FIRST
 
 
-async def reg_q_6_2(update, _):
+async def reg_q_6_1_2(update, _):
     """Показ выбора кнопок"""
+    dict_mongo[
+        "Через какое время после кормления происходит срыгивание?"] = "Через 1 час после кормления"
     query = update.callback_query
     await query.answer()
     keyboard = [
@@ -1077,13 +1886,67 @@ async def reg_q_6_2(update, _):
             InlineKeyboardButton("Несколько раз в неделю", callback_data=str(R_E_1))
         ],
         [
-            InlineKeyboardButton("1-2 раза в день", callback_data=str(R_E_2))
+            InlineKeyboardButton("1-2 раза в день", callback_data=str(R_E_2_1))
+        ],
+        [
+            InlineKeyboardButton("Больше 3-х раз в день или каждое вскармливание", callback_data=str(R_E_2_2))
+        ],
+        [
+            InlineKeyboardButton("Назад", callback_data=str(R_Q_5_1))
+        ],
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await query.edit_message_text(
+        text="Как часто происходит срыгивание?", reply_markup=reply_markup
+    )
+    return FIRST
+
+
+async def reg_q_6_2_1(update, _):
+    """Показ выбора кнопок"""
+    dict_mongo[
+        "Через какое время после кормления происходит срыгивание?"] = "Сразу после кормления"
+    query = update.callback_query
+    await query.answer()
+    keyboard = [
+        [
+            InlineKeyboardButton("Несколько раз в неделю", callback_data=str(R_E_1))
+        ],
+        [
+            InlineKeyboardButton("1-2 раза в день", callback_data=str(R_E_2_1))
         ],
         [
             InlineKeyboardButton("Больше 3-х раз в день или каждое вскармливание", callback_data=str(R_E_3))
         ],
         [
-            InlineKeyboardButton("Назад", callback_data=str(R_Q_5_2))
+            InlineKeyboardButton("Назад", callback_data=str(R_Q_5_2_1))
+        ],
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await query.edit_message_text(
+        text="Как часто происходит срыгивание?", reply_markup=reply_markup
+    )
+    return FIRST
+
+
+async def reg_q_6_2_2(update, _):
+    """Показ выбора кнопок"""
+    dict_mongo[
+        "Через какое время после кормления происходит срыгивание?"] = "Через 1 час после кормления"
+    query = update.callback_query
+    await query.answer()
+    keyboard = [
+        [
+            InlineKeyboardButton("Несколько раз в неделю", callback_data=str(R_E_1))
+        ],
+        [
+            InlineKeyboardButton("1-2 раза в день", callback_data=str(R_E_2_1))
+        ],
+        [
+            InlineKeyboardButton("Больше 3-х раз в день или каждое вскармливание", callback_data=str(R_E_3))
+        ],
+        [
+            InlineKeyboardButton("Назад", callback_data=str(R_Q_5_2_1))
         ],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -1094,6 +1957,8 @@ async def reg_q_6_2(update, _):
 
 
 async def reg_end_1(update, _):
+    dict_mongo[
+        "Как часто происходит срыгивание?"] = "Несколько раз в неделю"
     query = update.callback_query
     await query.answer()
     global recommendations
@@ -1124,7 +1989,44 @@ async def reg_end_1(update, _):
     return SECOND
 
 
-async def reg_end_2(update, _):
+async def reg_end_2_1(update, _):
+    dict_mongo[
+        "Как часто происходит срыгивание?"] = "1-2 раза в день"
+    query = update.callback_query
+    await query.answer()
+    global recommendations
+    recommendations += "Обратиться к врачу педиатру\n" \
+                       "Рекомендована постуральная терапия: \nКормление ребенка под углом 45-60 градусов;\n" \
+                       "Удерживать ребенка после кормления в вертикальном положении в течение 20-30 минут;\n" \
+                       "Следить за тем, чтобы младенец заглатывал сосок вместе с ареолой для предотвращения заглатывания воздуха;\n" \
+                       "При кормлении из бутылки необходимо полностью заполнять соску;\n" \
+                       "Следить за тем, чтобы одежда не сдавливала живот ребенка.\n"
+    keyboard = [
+        [
+            InlineKeyboardButton("Вашего ребенка беспокоит что-то еще?", callback_data=str(START_OVER))
+        ],
+        [
+            InlineKeyboardButton("Отправить Ваши данные врачу педиатру", callback_data=str(END))
+        ],
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await query.edit_message_text(
+        text="<b>Обратиться к врачу педиатру</b>\n"
+             "Рекомендована постуральная терапия: \nКормление ребенка под углом 45-60 градусов;\n"
+             "Удерживать ребенка после кормления в вертикальном положении в течение 20-30 минут;\n"
+             "Следить за тем, чтобы младенец заглатывал сосок вместе с ареолой для предотвращения заглатывания "
+             "воздуха;\n"
+             "При кормлении из бутылки необходимо полностью заполнять соску;\n"
+             "Следить за тем, чтобы одежда не сдавливала живот ребенка.",
+        parse_mode='HTML',
+        reply_markup=reply_markup
+    )
+    return SECOND
+
+
+async def reg_end_2_2(update, _):
+    dict_mongo[
+        "Как часто происходит срыгивание?"] = "Больше 3-х раз в день или каждое вскармливание"
     query = update.callback_query
     await query.answer()
     global recommendations
@@ -1158,6 +2060,8 @@ async def reg_end_2(update, _):
 
 
 async def reg_end_3(update, _):
+    dict_mongo[
+        "Как часто происходит срыгивание?"] = "Больше 3-х раз в день или каждое вскармливание"
     query = update.callback_query
     await query.answer()
     global recommendations
@@ -1236,12 +2140,124 @@ def clear(recommendations):
 async def end(update, _):
     """Возвращает `ConversationHandler.END`, который говорит
     `ConversationHandler` что разговор окончен"""
+    user = search_or_save_user(mdb, update.effective_user)
+    opros = save_user_opros(mdb, user, dict_mongo,dict_anketa)
+    user = search_or_save_user(mdb, update.effective_user)
+    df = pd.DataFrame.from_dict(user, orient='index').rename(columns={0: 'answer'})
+    df.to_csv('diff.csv')
+    clear_iloc2()
+    send_mail()
+    # for csvfile in glob.glob(os.path.join('.', '*.csv')):
+    #   workbook = Workbook(csvfile[:-4] + '.xlsx')
+    #  worksheet = workbook.add_worksheet()
+    # with open('diff.csv', 'rt', encoding='utf8') as f:
+    #    reader = csv.reader(f)
+    #   for r, row in enumerate(reader):
+    #      for c, col in enumerate(row):
+    #         worksheet.write(r, c, col)
+    # workbook.close()
+
     query = update.callback_query
     await query.answer()
     await query.edit_message_text(text=f"Спасибо за прохождение нашего опроса!\n"
                                        f"Наши рекомендации:\n"
                                        f" {clear(recommendations)}", parse_mode='HTML')
     return ConversationHandler.END
+
+
+filename = ""
+
+
+def clear_iloc(df, newdf, count):
+    loc = df['data'].iloc[count].replace("'", '')
+    loc = loc[1:-1].split(',')
+    list1 = []
+    flag = True
+    global filename
+
+    for elem in loc:
+        list1.append(elem.split(':'))
+
+    for elem in list1:
+        if count == 0 and flag:
+            flag = False
+            ru_text = elem[1].strip()
+            filename = translit(ru_text, language_code='ru', reversed=True)
+        newdf.loc[elem[0].strip()] = [elem[1]]
+    return newdf
+
+
+def clear_iloc2():
+    df = pd.DataFrame(columns=['name', 'data'])
+    newdf = pd.DataFrame(columns=['data'])
+    global filename
+    with open("diff.csv", encoding='utf-8') as r_file:
+        file_reader = csv.reader(r_file, delimiter=",")
+        count = 0
+        for row in file_reader:
+            if count > 3:
+                df.loc[count - 3] = row
+            count += 1
+    for i in range(4):
+        clear_iloc(df, newdf, i)
+    with pd.ExcelWriter(f'{filename}.xlsx') as writer:
+        newdf.to_excel(writer, sheet_name="MySheet")
+        sheet = writer.sheets['MySheet']
+        sheet.autofit()
+
+
+def send_mail():
+    subject = "Письмо с Excel вложением из Python"
+    body = "Это письмо из Python с прикрепленным файлом."
+    sender_email = "anshlag338@gmail.com"
+    receiver_email = "maksizkzkz03@gmail.com"
+    password = 'ltzhxjwfxhvzizfz'
+
+    # Создание составного сообщения и установка заголовка
+    message = MIMEMultipart()
+    message["From"] = sender_email
+    message["To"] = receiver_email
+    message["Subject"] = subject
+
+    # Внесение тела письма
+    message.attach(MIMEText(body, "plain"))
+
+    global filename
+    filename = f"{filename}.xlsx"  # В той же папке что и код
+
+    # Открытие PDF файла в бинарном режиме
+    with open(filename, "rb") as attachment:
+        # Заголовок письма application/octet-stream
+        # Почтовый клиент обычно может загрузить это автоматически в виде вложения
+        part = MIMEBase("application", "octet-stream")
+        part.set_payload(attachment.read())
+
+    # Шифровка файла под ASCII символы для отправки по почте
+    encoders.encode_base64(part)
+
+    # Внесение заголовка в виде пара/ключ к части вложения
+    part.add_header(
+        "Content-Disposition",
+        f"attachment; filename= {filename}",
+    )
+
+    # Внесение вложения в сообщение и конвертация сообщения в строку
+    message.attach(part)
+    text = message.as_string()
+
+    # Подключение к серверу при помощи безопасного контекста и отправка письма
+    context = ssl.create_default_context()
+    with smtplib.SMTP_SSL("smtp.gmail.com", 465, context=context) as server:
+        server.login(sender_email, password)
+        server.sendmail(sender_email, receiver_email, text)
+
+
+def question_number(num):
+    num = int(num)
+    key = max(dict_query)
+    key = int(key)
+    dict_query[key + 1] = num
+    return key
 
 
 def search_or_save_user(mdb, effective_user):
@@ -1255,13 +2271,13 @@ def search_or_save_user(mdb, effective_user):
     return user
 
 
-def save_user_anketa(mdb, user, user_data):
+def save_user_anketa(mdb, user):
     mdb.users.update_one(
         {'_id': user['_id']},
-        {'$set': {'anketa': {'ФИО': user_data['Ваше ФИО'],
-                             'Номер телефона': user_data['Номер телефона'],
-                             'ФИО ребенка': user_data['ФИО ребенка'],
-                             'Возраст ребенка в месяцах': user_data['Возраст ребенка в месяцах']}}
+        {'$set': {'anketa': {'ФИО': None,
+                             'Номер телефона': None,
+                             'ФИО ребенка': None,
+                             'Возраст ребенка в месяцах': None}}
          }
     )
     mdb.users.update_one(
@@ -1269,7 +2285,7 @@ def save_user_anketa(mdb, user, user_data):
         {'$set': {'Срыгивания': {'В течение какого времени срыгивания беспокоят Вашего ребенка?': None,
                                  'Какой объем одного срыгивания?': None,
                                  'Какой характер содержимого срыгивания?': None,
-                                 'Есть ли у Вашего ребенка одна или несколько из перечисленных жалоб: снижение массы тела, рвота фонтаном, рвота с примесью крови или желчи?': None,
+                                 'Есть ли у Вашего ребенка одна или несколько из перечисленных жалоб- снижение массы тела; рвота фонтаном; рвота с примесью крови или желчи?': None,
                                  'Через какое время после кормления происходит срыгивание?': None,
                                  'Как часто происходит срыгивание?': None}}
          }
@@ -1282,17 +2298,18 @@ def save_user_anketa(mdb, user, user_data):
                              'Есть ли связь возникновения колик с приемом пищи?': None,
                              'Проходят ли колики после стула?': None,
                              'Продолжительность одного эпизода колик?': None,
-                             'Есть ли у Вашего ребенка одна или несколько из перечисленных жалоб: Упорный крик с изменением тональности, повторные рвоты, рвота с кровью, кровь в стуле, потеря массы тела, задержка роста, лихорадка (повышение температуры)? ': None}}
+                             'На каком вскармливании Ваш ребенок?': None,
+                             'Есть ли у Вашего ребенка одна или несколько из перечисленных жалоб- Упорный крик с изменением тональности; повторные рвоты; рвота с кровью; кровь в стуле; потеря массы тела; задержка роста; лихорадка (повышение температуры)?': None}}
          }
     )
     mdb.users.update_one(
         {'_id': user['_id']},
-        {'$set': {'Изменение стул: задержка (запоры) или учащенный стул ':
+        {'$set': {'Изменение стул-задержка (запоры) или учащенный стул':
                       {'За прошедший месяц в среднем сколько дефекаций в неделю было у Вашего ребенка?': None,
-                       'Есть ли у Вашего ребенка одна или несколько из перечисленных жалоб: сухость кожи и слизистых, редкое мочеиспускание, язык обложен белым налетом, слабость и сонливость, западение родничка?': None,
+                       'Есть ли у Вашего ребенка одна или несколько из перечисленных жалоб- сухость кожи и слизистых; редкое мочеиспускание; язык обложен белым налетом; слабость и сонливость; западение родничка?': None,
                        'На каком вскармливании Ваш ребенок?': None,
-                       'В течение последнего месяца Ваш ребенок сильно тужился во время дефекации? ': None,
-                       'Какой консистенции был стул у Ваш ребенок за прошедший месяц? ': None}}
+                       'В течение последнего месяца Ваш ребенок сильно тужился во время дефекации?': None,
+                       'Какой консистенции был стул у Ваш ребенок за прошедший месяц?': None}}
          }
     )
     return user
@@ -1303,6 +2320,64 @@ def save_user_bd(mdb, user, x, y, z):
         {'_id': user['_id']},
         {'$set': {x: {y: z}
                   }}
+    )
+    return user
+
+def save_user_opros(mdb, user, dict , dict_anketa):
+    mdb.users.update_one(
+        {'_id': user['_id']},
+        {'$set': {'anketa': {'ФИО': dict_anketa['Ваше ФИО'],
+                             'Номер телефона': dict_anketa['Номер телефона'],
+                             'ФИО ребенка': dict_anketa['ФИО ребенка'],
+                             'Возраст ребенка в месяцах': dict_anketa['Возраст ребенка в месяцах']}}
+         }
+    )
+    mdb.users.update_one(
+        {'_id': user['_id']},
+        {'$set': {'Срыгивания': {'В течение какого времени срыгивания беспокоят Вашего ребенка?': dict[
+            'В течение какого времени срыгивания беспокоят Вашего ребенка?'],
+                                 'Какой объем одного срыгивания?': dict['Какой объем одного срыгивания?'],
+                                 'Какой характер содержимого срыгивания?': dict[
+                                     'Какой характер содержимого срыгивания?'],
+                                 'Есть ли у Вашего ребенка одна или несколько из перечисленных жалоб- снижение массы тела; рвота фонтаном; рвота с примесью крови или желчи?':
+                                     dict[
+                                         'Есть ли у Вашего ребенка одна или несколько из перечисленных жалоб- снижение массы тела; рвота фонтаном; рвота с примесью крови или желчи?'],
+                                 'Через какое время после кормления происходит срыгивание?': dict[
+                                     'Через какое время после кормления происходит срыгивание?'],
+                                 'Как часто происходит срыгивание?': dict['Как часто происходит срыгивание?']}}
+         }
+    )
+    mdb.users.update_one(
+        {'_id': user['_id']},
+        {'$set': {
+            'Колики': {'Как часто Вашего ребенка беспокоят колики?': dict['Как часто Вашего ребенка беспокоят колики?'],
+                       'В течение какого времени Вашего ребенка беспокоят колики?': dict[
+                           'В течение какого времени Вашего ребенка беспокоят колики?'],
+                       'В какое время суток беспокоят колики?': dict['В какое время суток беспокоят колики?'],
+                       'Есть ли связь возникновения колик с приемом пищи?': dict[
+                           'Есть ли связь возникновения колик с приемом пищи?'],
+                       'Проходят ли колики после стула?': dict['Проходят ли колики после стула?'],
+                       'Продолжительность одного эпизода колик?': dict['Продолжительность одного эпизода колик?'],
+                       'На каком вскармливании Ваш ребенок?': dict['На каком вскармливании Ваш ребенок?'],
+                       'Есть ли у Вашего ребенка одна или несколько из перечисленных жалоб- Упорный крик с изменением тональности; повторные рвоты; рвота с кровью; кровь в стуле; потеря массы тела; задержка роста; лихорадка (повышение температуры)?':
+                           dict[
+                               'Есть ли у Вашего ребенка одна или несколько из перечисленных жалоб- Упорный крик с изменением тональности; повторные рвоты; рвота с кровью; кровь в стуле; потеря массы тела; задержка роста; лихорадка (повышение температуры)?']}}
+         }
+    )
+    mdb.users.update_one(
+        {'_id': user['_id']},
+        {'$set': {'Изменение стул-задержка (запоры) или учащенный стул':
+                      {'За прошедший месяц в среднем сколько дефекаций в неделю было у Вашего ребенка?': dict[
+                          'За прошедший месяц в среднем сколько дефекаций в неделю было у Вашего ребенка?'],
+                       'Есть ли у Вашего ребенка одна или несколько из перечисленных жалоб- сухость кожи и слизистых; редкое мочеиспускание; язык обложен белым налетом; слабость и сонливость; западение родничка?':
+                           dict[
+                               'Есть ли у Вашего ребенка одна или несколько из перечисленных жалоб- сухость кожи и слизистых; редкое мочеиспускание; язык обложен белым налетом; слабость и сонливость; западение родничка?'],
+                       'На каком вскармливании Ваш ребенок?': dict['На каком вскармливании Ваш ребенок?'],
+                       'В течение последнего месяца Ваш ребенок сильно тужился во время дефекации?': dict[
+                           'В течение последнего месяца Ваш ребенок сильно тужился во время дефекации?'],
+                       'Какой консистенции был стул у Ваш ребенок за прошедший месяц?': dict[
+                           'Какой консистенции был стул у Ваш ребенок за прошедший месяц?']}}
+         }
     )
     return user
 
@@ -1322,45 +2397,96 @@ if __name__ == '__main__':
             FIRST: [
                 # CallbackQueryHandler(main_q, pattern='^' + str(MAIN) + '$'),
                 CallbackQueryHandler(colic_q_1, pattern='^' + str(C_Q_1) + '$'),
-                CallbackQueryHandler(colic_q_2, pattern='^' + str(C_Q_2) + '$'),
-                CallbackQueryHandler(colic_q_3, pattern='^' + str(C_Q_3) + '$'),
-                CallbackQueryHandler(colic_q_4, pattern='^' + str(C_Q_4) + '$'),
-                CallbackQueryHandler(colic_q_5, pattern='^' + str(C_Q_5) + '$'),
-                CallbackQueryHandler(colic_q_6, pattern='^' + str(C_Q_6) + '$'),
-                CallbackQueryHandler(colic_q_7, pattern='^' + str(C_Q_7) + '$'),
+                CallbackQueryHandler(colic_q_2_1, pattern='^' + str(C_Q_2_1) + '$'),
+                CallbackQueryHandler(colic_q_2_2, pattern='^' + str(C_Q_2_2) + '$'),
+
+                CallbackQueryHandler(colic_q_3_1, pattern='^' + str(C_Q_3_1) + '$'),
+                CallbackQueryHandler(colic_q_3_2, pattern='^' + str(C_Q_3_2) + '$'),
+                CallbackQueryHandler(colic_q_3_3, pattern='^' + str(C_Q_3_3) + '$'),
+
+                CallbackQueryHandler(colic_q_4_1, pattern='^' + str(C_Q_4_1) + '$'),
+                CallbackQueryHandler(colic_q_4_2, pattern='^' + str(C_Q_4_2) + '$'),
+                CallbackQueryHandler(colic_q_4_3, pattern='^' + str(C_Q_4_3) + '$'),
+                CallbackQueryHandler(colic_q_4_4, pattern='^' + str(C_Q_4_4) + '$'),
+
+                CallbackQueryHandler(colic_q_5_1, pattern='^' + str(C_Q_5_1) + '$'),
+                CallbackQueryHandler(colic_q_5_2, pattern='^' + str(C_Q_5_2) + '$'),
+
+                CallbackQueryHandler(colic_q_6_1, pattern='^' + str(C_Q_6_1) + '$'),
+                CallbackQueryHandler(colic_q_6_2, pattern='^' + str(C_Q_6_2) + '$'),
+
+                CallbackQueryHandler(colic_q_7_1, pattern='^' + str(C_Q_7_1) + '$'),
+                CallbackQueryHandler(colic_q_7_2, pattern='^' + str(C_Q_7_2) + '$'),
+
                 CallbackQueryHandler(colic_q_8_1, pattern='^' + str(C_Q_8_1) + '$'),
                 CallbackQueryHandler(colic_q_8_2, pattern='^' + str(C_Q_8_2) + '$'),
                 CallbackQueryHandler(colic_end_1, pattern='^' + str(C_E_1) + '$'),
                 CallbackQueryHandler(colic_end_2, pattern='^' + str(C_E_2) + '$'),
                 CallbackQueryHandler(colic_end_3, pattern='^' + str(C_E_3) + '$'),
                 CallbackQueryHandler(stool_q_1, pattern='^' + str(S_Q_1) + '$'),
-                CallbackQueryHandler(stool_q_2, pattern='^' + str(S_Q_2) + '$'),
+
+                CallbackQueryHandler(stool_q_2_1, pattern='^' + str(S_Q_2_1) + '$'),
+                CallbackQueryHandler(stool_q_2_2, pattern='^' + str(S_Q_2_2) + '$'),
+                CallbackQueryHandler(stool_q_2_3, pattern='^' + str(S_Q_2_3) + '$'),
+                CallbackQueryHandler(stool_q_2_4, pattern='^' + str(S_Q_2_4) + '$'),
+
                 CallbackQueryHandler(stool_q_3_1, pattern='^' + str(S_Q_3_1) + '$'),
                 CallbackQueryHandler(stool_q_3_2, pattern='^' + str(S_Q_3_2) + '$'),
+
                 CallbackQueryHandler(stool_q_4_1, pattern='^' + str(S_Q_4_1) + '$'),
                 CallbackQueryHandler(stool_q_4_2, pattern='^' + str(S_Q_4_2) + '$'),
                 CallbackQueryHandler(stool_q_4_3, pattern='^' + str(S_Q_4_3) + '$'),
                 CallbackQueryHandler(stool_q_4_4, pattern='^' + str(S_Q_4_4) + '$'),
-                CallbackQueryHandler(stool_q_5_1, pattern='^' + str(S_Q_5_1) + '$'),
-                CallbackQueryHandler(stool_q_5_2, pattern='^' + str(S_Q_5_2) + '$'),
-                CallbackQueryHandler(stool_q_5_3, pattern='^' + str(S_Q_5_3) + '$'),
-                CallbackQueryHandler(stool_q_5_4, pattern='^' + str(S_Q_5_4) + '$'),
-                CallbackQueryHandler(stool_end_1, pattern='^' + str(S_E_1) + '$'),
-                CallbackQueryHandler(stool_end_2, pattern='^' + str(S_E_2) + '$'),
-                CallbackQueryHandler(stool_end_3, pattern='^' + str(S_E_3) + '$'),
+
+                CallbackQueryHandler(stool_q_5_1_1, pattern='^' + str(S_Q_5_1_1) + '$'),
+                CallbackQueryHandler(stool_q_5_1_2, pattern='^' + str(S_Q_5_1_2) + '$'),
+
+                CallbackQueryHandler(stool_q_5_2_1, pattern='^' + str(S_Q_5_2_1) + '$'),
+                CallbackQueryHandler(stool_q_5_2_2, pattern='^' + str(S_Q_5_2_2) + '$'),
+
+                CallbackQueryHandler(stool_q_5_3_1, pattern='^' + str(S_Q_5_3_1) + '$'),
+                CallbackQueryHandler(stool_q_5_3_2, pattern='^' + str(S_Q_5_3_2) + '$'),
+
+                CallbackQueryHandler(stool_q_5_4_1, pattern='^' + str(S_Q_5_4_1) + '$'),
+                CallbackQueryHandler(stool_q_5_4_2, pattern='^' + str(S_Q_5_4_2) + '$'),
+
+                CallbackQueryHandler(stool_end_1_1, pattern='^' + str(S_E_1_1) + '$'),
+                CallbackQueryHandler(stool_end_1_2, pattern='^' + str(S_E_1_2) + '$'),
+
+                CallbackQueryHandler(stool_end_2_1, pattern='^' + str(S_E_2_1) + '$'),
+                CallbackQueryHandler(stool_end_2_2, pattern='^' + str(S_E_2_2) + '$'),
+
+                CallbackQueryHandler(stool_end_3_1, pattern='^' + str(S_E_3_1) + '$'),
+                CallbackQueryHandler(stool_end_3_2, pattern='^' + str(S_E_3_2) + '$'),
+
                 # CallbackQueryHandler(dbR_Q_1, pattern='^' + str(R_Q_1) + '$'),
                 CallbackQueryHandler(reg_q_1, pattern='^' + str(R_Q_1) + '$'),
-                CallbackQueryHandler(reg_q_2, pattern='^' + str(R_Q_2) + '$'),
-                CallbackQueryHandler(reg_q_3_1, pattern='^' + str(R_Q_3_1) + '$'),
+
+                CallbackQueryHandler(reg_q_2_1, pattern='^' + str(R_Q_2_1) + '$'),
+                CallbackQueryHandler(reg_q_2_2, pattern='^' + str(R_Q_2_2) + '$'),
+                CallbackQueryHandler(reg_q_2_3, pattern='^' + str(R_Q_2_3) + '$'),
+
+                CallbackQueryHandler(reg_q_3_1_1, pattern='^' + str(R_Q_3_1_1) + '$'),
+                CallbackQueryHandler(reg_q_3_1_2, pattern='^' + str(R_Q_3_1_2) + '$'),
                 CallbackQueryHandler(reg_q_3_2, pattern='^' + str(R_Q_3_2) + '$'),
-                CallbackQueryHandler(reg_q_4_1, pattern='^' + str(R_Q_4_1) + '$'),
-                CallbackQueryHandler(reg_q_4_2, pattern='^' + str(R_Q_4_2) + '$'),
+
+                CallbackQueryHandler(reg_q_4_1_1, pattern='^' + str(R_Q_4_1_1) + '$'),
+                CallbackQueryHandler(reg_q_4_1_2, pattern='^' + str(R_Q_4_1_2) + '$'),
+                CallbackQueryHandler(reg_q_4_2_1, pattern='^' + str(R_Q_4_2_1) + '$'),
+                CallbackQueryHandler(reg_q_4_2_2, pattern='^' + str(R_Q_4_2_2) + '$'),
+
                 CallbackQueryHandler(reg_q_5_1, pattern='^' + str(R_Q_5_1) + '$'),
-                CallbackQueryHandler(reg_q_5_2, pattern='^' + str(R_Q_5_2) + '$'),
-                CallbackQueryHandler(reg_q_6_1, pattern='^' + str(R_Q_6_1) + '$'),
-                CallbackQueryHandler(reg_q_6_2, pattern='^' + str(R_Q_6_2) + '$'),
+                CallbackQueryHandler(reg_q_5_2_1, pattern='^' + str(R_Q_5_2_1) + '$'),
+                CallbackQueryHandler(reg_q_5_2_2, pattern='^' + str(R_Q_5_2_2) + '$'),
+
+                CallbackQueryHandler(reg_q_6_1_1, pattern='^' + str(R_Q_6_1_1) + '$'),
+                CallbackQueryHandler(reg_q_6_1_2, pattern='^' + str(R_Q_6_1_2) + '$'),
+                CallbackQueryHandler(reg_q_6_2_1, pattern='^' + str(R_Q_6_2_1) + '$'),
+                CallbackQueryHandler(reg_q_6_2_2, pattern='^' + str(R_Q_6_2_2) + '$'),
+
                 CallbackQueryHandler(reg_end_1, pattern='^' + str(R_E_1) + '$'),
-                CallbackQueryHandler(reg_end_2, pattern='^' + str(R_E_2) + '$'),
+                CallbackQueryHandler(reg_end_2_1, pattern='^' + str(R_E_2_1) + '$'),
+                CallbackQueryHandler(reg_end_2_2, pattern='^' + str(R_E_2_2) + '$'),
                 CallbackQueryHandler(reg_end_3, pattern='^' + str(R_E_3) + '$'),
                 CallbackQueryHandler(start_over, pattern='^' + str(START_OVER) + '$'),
             ],
